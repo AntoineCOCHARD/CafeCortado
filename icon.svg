@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 680" width="512" height="512">
+  <title>Café Cortado</title>
+
+  <!-- Background rounded square -->
+  <rect x="0" y="0" width="680" height="680" rx="120" fill="#78350F"/>
+  <rect x="18" y="18" width="644" height="644" rx="108" fill="none" stroke="#92400E" stroke-width="6"/>
+
+  <!-- Steam wisps -->
+  <path d="M 270 168 Q 255 140 270 112 Q 285 84 270 56" fill="none" stroke="#FEF3C7" stroke-width="8" stroke-linecap="round"/>
+  <path d="M 340 158 Q 325 128 340 98 Q 355 68 340 38" fill="none" stroke="#FEF3C7" stroke-width="8" stroke-linecap="round"/>
+  <path d="M 410 168 Q 395 140 410 112 Q 425 84 410 56" fill="none" stroke="#FEF3C7" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Saucer -->
+  <ellipse cx="340" cy="530" rx="210" ry="36" fill="#F5DFA0"/>
+  <ellipse cx="340" cy="524" rx="185" ry="28" fill="#E9C97E"/>
+
+  <!-- Cup body -->
+  <path d="M 168 340 Q 164 490 200 510 Q 260 535 340 535 Q 420 535 480 510 Q 516 490 512 340 Z" fill="#FEF3C7"/>
+  <path d="M 200 370 Q 198 480 222 500 Q 270 518 340 518 Q 410 518 458 500 Q 482 480 480 370 Z" fill="#E9C97E"/>
+
+  <!-- Coffee surface -->
+  <ellipse cx="340" cy="340" rx="172" ry="42" fill="#7B3F00"/>
+
+  <!-- Foam / crema -->
+  <ellipse cx="340" cy="335" rx="158" ry="36" fill="#FAEBD0"/>
+
+  <!-- Cortado latte art (heart) -->
+  <ellipse cx="310" cy="330" rx="36" ry="28" fill="#DEB887"/>
+  <ellipse cx="370" cy="330" rx="36" ry="28" fill="#DEB887"/>
+  <path d="M 274 320 Q 340 390 406 320" fill="#DEB887" stroke="none"/>
+
+  <!-- Cup rim -->
+  <ellipse cx="340" cy="340" rx="172" ry="42" fill="none" stroke="#FEF3C7" stroke-width="10"/>
+
+  <!-- Handle -->
+  <path d="M 512 370 Q 576 370 576 430 Q 576 490 512 490" fill="none" stroke="#FEF3C7" stroke-width="18" stroke-linecap="round"/>
+
+  <!-- Gold star -->
+  <polygon points="546,550 552,564 567,564 556,574 560,590 546,581 532,590 536,574 525,564 540,564" fill="#F59E0B"/>
+
+  <!-- App name -->
+  <text x="340" y="618" text-anchor="middle" font-family="Georgia, serif" font-size="52" font-weight="bold" fill="#FEF3C7" letter-spacing="3">CORTADO</text>
+</svg>
