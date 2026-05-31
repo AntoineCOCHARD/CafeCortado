@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#78350F">
+<meta name="description" content="Café Cortado — jeu de placement tactique pour mobile">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Café Cortado">
+<title>Café Cortado</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+:root {
+  --brown: #78350F;
+  --brown-light: #92400E;
+  --brown-dark: #1C0A00;
+  --cream: #FEF3C7;
+  --bg: #F5EDD8;
+  --gold: #F59E0B;
+  --green: #22C55E;
+  --red: #991B1B;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0; padding: 0;
+  height: 100%; width: 100%;
+  background: var(--bg);
+  font-family: Georgia, "Times New Roman", serif;
+  overscroll-behavior: none;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  touch-action: manipulation;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollable screens */
+.screen {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* Safe areas */
+.safe-top { padding-top: max(16px, var(--safe-top)); }
+.safe-bottom { padding-bottom: max(16px, var(--safe-bottom)); }
+
+/* Bottom navigation bar */
+.bottom-nav {
+  flex-shrink: 0;
+  background: var(--brown-dark);
+  border-top: 1px solid rgba(255,255,255,.12);
+  padding: 8px 0;
+  padding-bottom: max(8px, var(--safe-bottom));
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  z-index: 100;
+}
+
+.bottom-nav button {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,.45);
+  font-family: Georgia, serif;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 16px;
+  border-radius: 10px;
+  transition: all .15s;
+  min-width: 64px;
+}
+.bottom-nav button.active { color: var(--gold); }
+.bottom-nav button .nav-icon { font-size: 22px; line-height: 1; }
+
+/* Game header (sticky) */
+.game-header {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  padding-top: max(12px, var(--safe-top));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+/* Animations */
+@keyframes popIn { from { opacity:0; transform:scale(.93) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
+@keyframes scorePulse { 0% { transform:scale(.9); opacity:.2; } 50% { transform:scale(1.1); opacity:1; } 100% { transform:scale(1); opacity:1; } }
+@keyframes tileDrop { from { opacity:.2; transform:translateY(-8px) scale(.96); } to { opacity:1; transform:translateY(0) scale(1); } }
+@keyframes slideUp { from { opacity:0; transform:translateY(100%); } to { opacity:1; transform:translateY(0); } }
+@keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+
+.pop-in { animation: popIn .22s ease-out both; }
+.score-pulse { animation: scorePulse .4s ease-out both; }
+.tile-drop { animation: tileDrop .18s ease-out both; }
+.slide-up { animation: slideUp .28s ease-out both; }
+.fade-in { animation: fadeIn .2s ease-out both; }
+
+/* Modal bottom sheet */
+.bottom-sheet-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(28,10,0,.72);
+  display: flex; align-items: flex-end;
+  animation: fadeIn .15s ease-out both;
+}
+.bottom-sheet {
+  width: 100%; max-height: 88svh;
+  background: var(--bg); border-radius: 16px 16px 0 0;
+  overflow: hidden; display: flex; flex-direction: column;
+  padding-bottom: max(0px, var(--safe-bottom));
+  animation: slideUp .25s ease-out both;
+}
+.bottom-sheet-handle {
+  width: 36px; height: 4px; border-radius: 2px;
+  background: rgba(120,53,15,.3); margin: 10px auto 4px;
+  flex-shrink: 0;
+}
+.bottom-sheet-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 14px 14px; }
+
+/* Cells */
+.cell {
+  width: 100%; aspect-ratio: 1; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; user-select: none; flex-shrink: 0;
+  font-size: clamp(18px, 7.5vw, 30px);
+  transition: transform .1s, box-shadow .1s;
+}
+.cell.valid:active { transform: scale(.93); }
+.cell.rotatable:active { transform: scale(.93); }
+
+/* VCard */
+.vcard {
+  flex: 1; border-radius: 12px; padding: 10px 6px;
+  text-align: center; cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,.3);
+  transition: transform .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.vcard:active { transform: scale(.93); }
+.vcard.disabled { opacity: .45; pointer-events: none; }
+
+/* Buttons base */
+button { touch-action: manipulation; cursor: pointer; font-family: Georgia, serif; }
+
+/* Action buttons */
+.btn-primary {
+  width: 100%; padding: 15px; border: none; border-radius: 12px;
+  font-size: 16px; font-weight: bold; font-family: Georgia, serif;
+  box-shadow: 0 4px 16px rgba(0,0,0,.3);
+  transition: transform .1s, box-shadow .1s;
+}
+.btn-primary:active { transform: scale(.97); box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+
+.btn-secondary {
+  padding: 10px 14px; border-radius: 10px;
+  font-size: 13px; font-weight: bold; font-family: Georgia, serif;
+  transition: transform .1s;
+}
+.btn-secondary:active { transform: scale(.95); }
+
+/* Player strip */
+.player-dot {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 10px; border-radius: 10px;
+  transition: all .2s;
+}
+
+/* Score badge */
+.score-badge {
+  background: rgba(255,255,255,.15);
+  border-radius: 8px; padding: 2px 8px;
+  color: white; font-size: 22px; font-weight: bold;
+}
+
+/* Vitrine row */
+.vitrine-row { display: flex; gap: 8px; margin-bottom: 10px; }
+
+/* Grid */
+.cafe-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 4px; background: rgba(120,53,15,.12);
+  padding: 6px; border-radius: 12px;
+}
+
+/* Info message */
+.info-msg {
+  margin: 8px 14px; padding: 10px 14px;
+  border-radius: 10px; font-size: 13px; line-height: 1.4;
+}
+
+/* Setup screen */
+.setup-screen {
+  min-height: 100svh;
+  background: linear-gradient(160deg, #1C0A00 0%, #78350F 55%, #1C0A00 100%);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 24px 20px;
+  text-align: center;
+  color: var(--cream);
+}
+
+/* End screen */
+.end-screen {
+  background: linear-gradient(160deg, #1C0A00, #78350F 60%, #1C0A00);
+  min-height: 100svh; padding: 20px 14px;
+  color: var(--cream);
+}
+
+/* Transition screen */
+.transition-screen {
+  min-height: 100svh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 24px 20px; text-align: center;
+}
+
+/* Scrollable game body */
+.game-body {
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding-bottom: 16px;
+}
+
+/* Pill tag */
+.pill {
+  background: rgba(120,53,15,.08);
+  border: 1px solid rgba(120,53,15,.14);
+  border-radius: 8px; padding: 8px 10px;
+  color: var(--brown);
+}
+
+/* Number picker */
+.num-btn {
+  width: 60px; height: 60px; border-radius: 14px; border: none;
+  font-size: 24px; font-weight: bold; font-family: Georgia, serif;
+  cursor: pointer; transition: all .15s;
+}
+
+/* Sticky end turn */
+.end-turn-bar {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  padding-bottom: max(10px, var(--safe-bottom));
+  background: var(--bg);
+  border-top: 1px solid rgba(120,53,15,.12);
+}
+
+@media (min-width: 480px) {
+  .cafe-grid { gap: 5px; padding: 8px; }
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useEffect, useState, useRef, useCallback } = React;
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+const G = 4;
+const PC = ['#7B1A1A','#1A3672','#14532D','#5B21B6'];
+const PN = ['Joueur 1','Joueur 2','Joueur 3','Joueur 4'];
+const PE = ['🔴','🔵','🟢','🟣'];
+
+const T = {
+  comptoir:{ e:'🏪', bg:'#78350F', fg:'#FEF3C7', n:'Comptoir' },
+  habitue: { e:'☕', bg:'#991B1B', fg:'#FFF',     n:'Habitué'  },
+  nomade:  { e:'💻', bg:'#1E3A8A', fg:'#FFF',     n:'Nomade'   },
+  touriste:{ e:'📷', bg:'#92400E', fg:'#FFF',     n:'Touriste' },
+  lecteur: { e:'📖', bg:'#14532D', fg:'#FFF',     n:'Lecteur'  },
+  artiste: { e:'🎨', bg:'#6D28D9', fg:'#FFF',     n:'Artiste'  },
+};
+
+const ROLES = [
+  {id:'patron',e:'☕',n:'Le Patron',d:'Commence avec 4 Cortados.'},
+  {id:'architecte',e:'🏗',n:"L'Architecte",d:'Une fois par partie, peut placer une tuile sur n\'importe quelle case libre.'},
+  {id:'guide',e:'📷',n:'Le Guide Touristique',d:'Chaque Touriste posé rapporte +1 point immédiat.'},
+  {id:'critique',e:'📖',n:'Le Critique Littéraire',d:'Chaque Lecteur calme vaut +1 point final supplémentaire.'},
+  {id:'entrepreneur',e:'💻',n:"L'Entrepreneur",d:'Le plus grand groupe de Nomades gagne +2 points bonus.'},
+  {id:'conservateur',e:'🎨',n:'Le Conservateur',d:'Chaque Artiste rapporte +1 point par type différent adjacent.'},
+];
+
+const PUBLIC_OBJECTIVES = [
+  {id:'quartier_num',e:'💻',n:'Quartier Numérique',d:'Le plus grand groupe de Nomades rapporte +5 points.',score:s=>s.maxNomadeGroup>0?[5,`💻 Quartier Numérique → +5pts`]:[0,null]},
+  {id:'rue_touristique',e:'📷',n:'Rue Touristique',d:'Chaque Touriste rapporte +1 point final.',score:s=>[s.counts.touriste,`📷 Rue Touristique ${s.counts.touriste}×1 → +${s.counts.touriste}pts`]},
+  {id:'club_lecture',e:'📖',n:'Club de Lecture',d:'Chaque Lecteur calme rapporte +2 points.',score:s=>[s.calmReaders*2,`📖 Club de Lecture ${s.calmReaders}×2 → +${s.calmReaders*2}pts`]},
+  {id:'cafe_trad',e:'☕',n:'Café Traditionnel',d:'Chaque Habitué adjacent au comptoir rapporte +1 point.',score:s=>[s.habituesNearCounter,`☕ Café Traditionnel ${s.habituesNearCounter}×1 → +${s.habituesNearCounter}pts`]},
+  {id:'economie',e:'☕',n:'Économie de Cortado',d:'Le joueur avec le plus de Cortados restants gagne +6 points.',rank:true,score:(s,ctx)=>s.tokens===ctx.maxTokens?[6,`☕ Économie de Cortado → +6pts`]:[0,null]},
+  {id:'galerie',e:'🎨',n:'Galerie Locale',d:'Chaque Artiste rapporte +1 point final.',score:s=>[s.counts.artiste,`🎨 Galerie Locale ${s.counts.artiste}×1 → +${s.counts.artiste}pts`]},
+  {id:'place_mixte',e:'🎭',n:'Place Mixte',d:'Avoir les 5 types de clients rapporte +7 points.',score:s=>s.typeKinds>=5?[7,`🎭 Place Mixte → +7pts`]:[0,null]},
+  {id:'terrasse',e:'🪟',n:'Terrasse Ouverte',d:'Chaque fenêtre libre rapporte +1 point final.',score:s=>[s.freeWindows,`🪟 Terrasse Ouverte ${s.freeWindows}×1 → +${s.freeWindows}pts`]},
+  {id:'silence',e:'📖',n:'Silence Respecté',d:'Aucun Lecteur bruyant rapporte +6 points.',score:s=>s.counts.lecteur>0&&s.noisyReaders===0?[6,`📖 Silence Respecté → +6pts`]:[0,null]},
+  {id:'chaine',e:'☕',n:'Chaîne des Habitués',d:'Un groupe de 4 Habitués ou plus rapporte +6 points.',score:s=>s.maxHabitueGroup>=4?[6,`☕ Chaîne des Habitués → +6pts`]:[0,null]},
+  {id:'collectif',e:'🎨',n:'Collectif Créatif',d:'Chaque Artiste avec 3 voisins ou plus rapporte +2 points.',score:s=>[s.socialArtists*2,`🎨 Collectif Créatif ${s.socialArtists}×2 → +${s.socialArtists*2}pts`]},
+  {id:'nomades_duo',e:'💻',n:'Duo Connecté',d:'Chaque groupe de Nomades de taille 2+ rapporte +2 points.',score:s=>[s.nomadeGroups.filter(x=>x>=2).length*2,`💻 Duo Connecté → +${s.nomadeGroups.filter(x=>x>=2).length*2}pts`]},
+  {id:'carte_postale',e:'📷',n:'Carte Postale',d:'Chaque Touriste en bord de café rapporte +1 point.',score:s=>[s.edgeTourists,`📷 Carte Postale ${s.edgeTourists}×1 → +${s.edgeTourists}pts`]},
+  {id:'comptoir_vivant',e:'🏪',n:'Comptoir Vivant',d:'Chaque voisin du comptoir rapporte +2 points.',score:s=>[s.counterNeighbors*2,`🏪 Comptoir Vivant ${s.counterNeighbors}×2 → +${s.counterNeighbors*2}pts`]},
+  {id:'dernier_cafe',e:'☕',n:'Dernier Café',d:'Finir avec au moins 2 Cortados rapporte +4 points.',score:s=>s.tokens>=2?[4,`☕ Dernier Café → +4pts`]:[0,null]},
+];
+
+const SECRET_OBJECTIVES = [
+  {id:'digital_nomad',e:'💻',n:'Digital Nomad',d:'Créer un groupe de 5 Nomades.',pts:10,ok:s=>s.maxNomadeGroup>=5},
+  {id:'terrasse_ensoleillee',e:'🪟',n:'Terrasse Ensoleillée',d:'Accumuler 12 fenêtres libres.',pts:8,ok:s=>s.freeWindows>=12},
+  {id:'coin_lecture',e:'📖',n:'Coin Lecture',d:'Avoir 3 Lecteurs calmes.',pts:8,ok:s=>s.calmReaders>=3},
+  {id:'cafe_international',e:'📷',n:'Café International',d:'Posséder au moins 4 Touristes.',pts:6,ok:s=>s.counts.touriste>=4},
+  {id:'clientele_variee',e:'🎭',n:'Clientèle Variée',d:'Avoir les 5 types de clients présents.',pts:8,ok:s=>s.typeKinds>=5},
+  {id:'fidelite',e:'☕',n:'Fidélité',d:'Avoir 6 Habitués ou plus.',pts:8,ok:s=>s.counts.habitue>=6},
+  {id:'maitre_cortado',e:'☕',n:'Maître du Cortado',d:'Finir avec 3 Cortados.',pts:10,ok:s=>s.tokens>=3},
+  {id:'vernissage',e:'🎨',n:'Vernissage',d:'Avoir 3 Artistes.',pts:8,ok:s=>s.counts.artiste>=3},
+  {id:'quatuor_creatif',e:'🎨',n:'Quatuor Créatif',d:'Un Artiste adjacent à 4 types différents.',pts:10,ok:s=>s.bestArtistKinds>=4},
+  {id:'table_ronde',e:'☕',n:'Table Ronde',d:'Créer un groupe de 4 Habitués.',pts:6,ok:s=>s.maxHabitueGroup>=4},
+  {id:'silence_total',e:'📖',n:'Silence Total',d:'Aucun Lecteur bruyant.',pts:7,ok:s=>s.counts.lecteur>0&&s.noisyReaders===0},
+  {id:'photo_bord',e:'📷',n:'Photo de Rue',d:'Avoir 3 Touristes en bordure.',pts:6,ok:s=>s.edgeTourists>=3},
+  {id:'reseau_dense',e:'💻',n:'Réseau Dense',d:'Avoir deux groupes de Nomades de 2+.',pts:8,ok:s=>s.nomadeGroups.filter(x=>x>=2).length>=2},
+  {id:'cafe_vide',e:'🪟',n:'Vue Dégagée',d:'Avoir 8 fenêtres libres ou plus.',pts:6,ok:s=>s.freeWindows>=8},
+  {id:'proche_comptoir',e:'🏪',n:'Près du Comptoir',d:'Avoir 3 clients adjacents au comptoir.',pts:8,ok:s=>s.counterNeighbors>=3},
+  {id:'habitudes',e:'☕',n:'Habitudes Solides',d:'Avoir 4 Habitués adjacents à un Habitué.',pts:7,ok:s=>s.linkedHabitues>=4},
+  {id:'tour_du_monde',e:'📷',n:'Tour du Monde',d:'Avoir 5 Touristes.',pts:9,ok:s=>s.counts.touriste>=5},
+  {id:'bibliotheque',e:'📖',n:'Bibliothèque',d:'Avoir 4 Lecteurs.',pts:7,ok:s=>s.counts.lecteur>=4},
+  {id:'startup',e:'💻',n:'Startup',d:'Avoir 4 Nomades.',pts:7,ok:s=>s.counts.nomade>=4},
+  {id:'atelier',e:'🎨',n:'Atelier',d:'Deux Artistes adjacents.',pts:6,ok:s=>s.adjacentArtists},
+  {id:'equilibre',e:'🎭',n:'Équilibre',d:'Avoir au moins 2 clients de 3 types différents.',pts:8,ok:s=>Object.values(s.counts).filter(x=>x>=2).length>=3},
+  {id:'minimaliste',e:'☕',n:'Minimaliste',d:'Finir avec au plus 2 types ayant 4+ clients.',pts:6,ok:s=>Object.values(s.counts).filter(x=>x>=4).length<=2},
+  {id:'place_calme',e:'📖',n:'Place Calme',d:'Avoir 2 Lecteurs calmes en bordure.',pts:8,ok:s=>s.edgeCalmReaders>=2},
+  {id:'facade',e:'🪟',n:'Façade Lumineuse',d:'Avoir 5 fenêtres libres en bordure.',pts:7,ok:s=>s.edgeFreeWindows>=5},
+  {id:'duo_cortado',e:'☕',n:'Duo Cortado',d:'Finir avec 2 Cortados exactement.',pts:6,ok:s=>s.tokens===2},
+  {id:'full_house',e:'🎭',n:'Salle Pleine',d:'Remplir toutes les cases du café.',pts:5,ok:s=>s.filled===G*G},
+  {id:'nomade_isole',e:'💻',n:'Soliste Digital',d:'Avoir un Nomade sans Nomade adjacent.',pts:6,ok:s=>s.isolatedNomades>=1},
+  {id:'critique_heureux',e:'📖',n:'Critique Heureux',d:'Avoir un Lecteur calme adjacent à un Artiste.',pts:7,ok:s=>s.calmReaderNearArtist},
+  {id:'guide_local',e:'📷',n:'Guide Local',d:'Avoir un Touriste adjacent au comptoir.',pts:6,ok:s=>s.touristNearCounter},
+  {id:'cafe_signature',e:'🎨',n:'Café Signature',d:'Marquer au moins 12 points avec Artistes et objectifs.',pts:10,ok:s=>s.artistPoints>=12},
+];
+
+const DIRS = { N:[-1,0],S:[1,0],E:[0,1],W:[0,-1] };
+const D4 = ['N','E','S','W'];
+
+const WIN_PAT = [
+  ['N'],['E'],['S'],['W'],['N','E'],['N','S'],['N','W'],['E','S'],
+  ['E','W'],['S','W'],['N','E','S'],['N','E','W'],
+  ['N','S','W'],['E','S','W'],['N','E','S','W'],['N','S'],
+];
+
+const rnd = a => {
+  const b=[...a];
+  for(let i=b.length-1;i>0;i--){const j=0|Math.random()*(i+1);[b[i],b[j]]=[b[j],b[i]];}
+  return b;
+};
+
+// Haptic feedback helper
+const haptic = (style='light') => {
+  try { window.navigator?.vibrate?.(style==='heavy'?40:style==='medium'?20:10); } catch(e) {}
+  try { window.webkit?.messageHandlers?.haptic?.postMessage?.(style); } catch(e) {}
+};
+
+function makeBag(){
+  let id=0; const t=[]; const p=rnd([...WIN_PAT]);
+  for(let i=0;i<16;i++){
+    t.push({id:id++,type:'habitue'});
+    t.push({id:id++,type:'nomade'});
+    t.push({id:id++,type:'touriste',windows:p[i]});
+    t.push({id:id++,type:'lecteur'});
+    if(i<12)t.push({id:id++,type:'artiste'});
+  }
+  return rnd(t);
+}
+
+function makeGrid(){
+  const g=Array(G).fill(null).map(()=>Array(G).fill(null));
+  g[0][0]={id:-1,type:'comptoir'};
+  return g;
+}
+
+function getVP(grid){
+  const res=[];
+  for(let r=0;r<G;r++) for(let c=0;c<G;c++){
+    if(grid[r][c]!==null) continue;
+    if(D4.some(d=>{const[dr,dc]=DIRS[d],nr=r+dr,nc=c+dc;return nr>=0&&nr<G&&nc>=0&&nc<G&&grid[nr][nc]!==null;}))
+      res.push([r,c]);
+  }
+  return res;
+}
+
+function getAllEmpty(grid){
+  const res=[];
+  for(let r=0;r<G;r++) for(let c=0;c<G;c++) if(grid[r][c]===null)res.push([r,c]);
+  return res;
+}
+
+function countGroup(grid,type){
+  const groups=[]; const vis=Array(G).fill(null).map(()=>Array(G).fill(false));
+  for(let r=0;r<G;r++) for(let c=0;c<G;c++){
+    if(grid[r][c]?.type===type&&!vis[r][c]){
+      let sz=0; const stk=[[r,c]];
+      while(stk.length){const[cr,cc]=stk.pop();if(vis[cr][cc])continue;vis[cr][cc]=true;sz++;
+        D4.forEach(d=>{const[dr,dc]=DIRS[d],nr=cr+dr,nc=cc+dc;if(nr>=0&&nr<G&&nc>=0&&nc<G&&!vis[nr][nc]&&grid[nr][nc]?.type===type)stk.push([nr,nc]);});}
+      groups.push(sz);
+    }
+  }
+  return groups;
+}
+
+function adjacentTiles(grid,r,c){
+  return D4.map(d=>{const[dr,dc]=DIRS[d],nr=r+dr,nc=c+dc;return nr>=0&&nr<G&&nc>=0&&nc<G?grid[nr][nc]:null;}).filter(Boolean);
+}
+
+function isCalmReader(grid,r,c){
+  return D4.every(d=>{const[dr,dc]=DIRS[d],nr=r+dr,nc=c+dc;if(nr<0||nr>=G||nc<0||nc>=G)return true;const t=grid[nr][nc];return!t||(t.type!=='nomade'&&t.type!=='touriste');});
+}
+
+function freeWindowsFor(tile,grid,r,c){
+  return(tile.windows||[]).reduce((s,d)=>{const[dr,dc]=DIRS[d],nr=r+dr,nc=c+dc;if(nr<0||nr>=G||nc<0||nc>=G)return s+1;return s+(grid[nr][nc]===null?1:0);},0);
+}
+
+function getStats(grid,tokens){
+  const counts={habitue:0,nomade:0,touriste:0,lecteur:0,artiste:0};
+  const nomadeGroups=countGroup(grid,'nomade');
+  const habitueGroups=countGroup(grid,'habitue');
+  let calmReaders=0,noisyReaders=0,freeWindows=0,edgeFreeWindows=0,edgeTourists=0,edgeCalmReaders=0;
+  let habituesNearCounter=0,counterNeighbors=0,linkedHabitues=0,isolatedNomades=0,socialArtists=0,bestArtistKinds=0,artistPoints=0;
+  let adjacentArtists=false,calmReaderNearArtist=false,touristNearCounter=false,filled=countT(grid);
+  for(let r=0;r<G;r++) for(let c=0;c<G;c++){
+    const tile=grid[r][c]; if(!tile)continue;
+    if(counts[tile.type]!==undefined)counts[tile.type]++;
+    const adj=adjacentTiles(grid,r,c), edge=r===0||c===0||r===G-1||c===G-1;
+    const nearCounter=adj.some(t=>t.type==='comptoir');
+    if(tile.type==='touriste'){
+      const fw=freeWindowsFor(tile,grid,r,c); freeWindows+=fw;
+      if(edge){edgeTourists++; edgeFreeWindows+=fw;}
+      if(nearCounter)touristNearCounter=true;
+    }
+    if(tile.type==='lecteur'){
+      const calm=isCalmReader(grid,r,c);
+      if(calm){calmReaders++; if(edge)edgeCalmReaders++; if(adj.some(t=>t.type==='artiste'))calmReaderNearArtist=true;}
+      else noisyReaders++;
+    }
+    if(tile.type==='habitue'){
+      if(nearCounter)habituesNearCounter++;
+      if(adj.some(t=>t.type==='habitue'))linkedHabitues++;
+    }
+    if(tile.type==='nomade'&&!adj.some(t=>t.type==='nomade'))isolatedNomades++;
+    if(tile.type==='artiste'){
+      const kinds=new Set(adj.filter(t=>t.type!=='comptoir').map(t=>t.type));
+      bestArtistKinds=Math.max(bestArtistKinds,kinds.size);
+      if(adj.length>=3)socialArtists++;
+      if(adj.some(t=>t.type==='artiste'))adjacentArtists=true;
+      artistPoints+=kinds.size===4?10:kinds.size*2;
+    }
+    if(tile.type!=='comptoir'&&nearCounter)counterNeighbors++;
+  }
+  return{
+    counts,tokens,filled,nomadeGroups,habitueGroups,calmReaders,noisyReaders,freeWindows,edgeFreeWindows,edgeTourists,edgeCalmReaders,
+    habituesNearCounter,counterNeighbors,linkedHabitues,isolatedNomades,socialArtists,bestArtistKinds,artistPoints,
+    adjacentArtists,calmReaderNearArtist,touristNearCounter,
+    maxNomadeGroup:Math.max(0,...nomadeGroups),maxHabitueGroup:Math.max(0,...habitueGroups),
+    typeKinds:Object.values(counts).filter(x=>x>0).length,
+  };
+}
+
+function iScore(tile,grid,r,c,player){
+  if(tile.type==='habitue')
+    return D4.reduce((s,d)=>{const[dr,dc]=DIRS[d],nr=r+dr,nc=c+dc;if(nr<0||nr>=G||nc<0||nc>=G)return s;const t=grid[nr][nc];return s+(t&&(t.type==='habitue'||t.type==='comptoir')?1:0);},0);
+  if(tile.type==='touriste')
+    return(tile.windows||[]).reduce((s,d)=>{const[dr,dc]=DIRS[d],nr=r+dr,nc=c+dc;if(nr<0||nr>=G||nc<0||nc>=G)return s+2;return s+(grid[nr][nc]===null?2:0);},0)+(player?.role?.id==='guide'?1:0);
+  return 0;
+}
+
+function iScoreDetail(tile,grid,r,c,player){
+  if(tile.type==='habitue'){
+    const hits=D4.map(d=>{const[dr,dc]=DIRS[d],nr=r+dr,nc=c+dc;if(nr<0||nr>=G||nc<0||nc>=G)return null;return grid[nr][nc];})
+      .filter(t=>t&&(t.type==='habitue'||t.type==='comptoir')).length;
+    return {pts:hits,text:`☕ Habitué : ${hits} voisin${hits>1?'s':''} = +${hits}`};
+  }
+  if(tile.type==='touriste'){
+    const free=(tile.windows||[]).filter(d=>{const[dr,dc]=DIRS[d],nr=r+dr,nc=c+dc;return nr<0||nr>=G||nc<0||nc>=G||grid[nr][nc]===null;}).length;
+    const base=free*2, bonus=player?.role?.id==='guide'?1:0;
+    return {pts:base+bonus,text:`📷 Touriste : ${free} fenêtre${free>1?'s':''} libre${free>1?'s':''} = +${base}${bonus?` · Guide +${bonus}`:''}`};
+  }
+  return {pts:0,text:`${T[tile.type].e} ${T[tile.type].n} : pas de score immédiat`};
+}
+
+function eScore(player,publicObjectives,ctx){
+  const grid=player.grid,tokens=player.cortado,stats=getStats(grid,tokens);
+  let sc=0; const lines=[]; const sections={tuiles:[],roles:[],publics:[],secret:[],cortados:[]};
+  const maxG=stats.maxNomadeGroup;
+  const np=maxG===0?0:maxG===1?1:maxG===2?3:maxG===3?6:10;
+  sc+=np; if(maxG>0){const l=`💻 Nomades ×${maxG} → +${np}pts`;lines.push(l);sections.tuiles.push(l);}
+  let lp=0,lc=0,ap=0,ac=0;
+  for(let r=0;r<G;r++) for(let c=0;c<G;c++){
+    if(grid[r][c]?.type==='lecteur'&&isCalmReader(grid,r,c)){lp+=4+(player.role?.id==='critique'?1:0);lc++;}
+    if(grid[r][c]?.type==='artiste'){
+      const kinds=new Set(adjacentTiles(grid,r,c).filter(t=>t.type!=='comptoir').map(t=>t.type));
+      ap+=(kinds.size===4?10:kinds.size*2)+(player.role?.id==='conservateur'?kinds.size:0); ac++;
+    }
+  }
+  sc+=lp; if(lc>0){const l=`📖 Lecteurs calmes ${lc}×${player.role?.id==='critique'?5:4} → +${lp}pts`;lines.push(l);sections.tuiles.push(l);}
+  sc+=ap; if(ac>0){const l=`🎨 Artistes → +${ap}pts`;lines.push(l);sections.tuiles.push(l);}
+  if(player.role?.id==='entrepreneur'&&maxG>0){sc+=2;const l='💻 Entrepreneur → +2pts';lines.push(l);sections.roles.push(l);}
+  const bp=tokens*2; sc+=bp; if(bp>0){const l=`☕ Cortados restants ${tokens}×2 → +${bp}pts`;lines.push(l);sections.cortados.push(l);}
+  publicObjectives.forEach(o=>{if(typeof o.score!=='function')return; const[pts,line]=o.score(stats,ctx); if(pts>0){sc+=pts;lines.push(line);sections.publics.push(line);}});
+  if(typeof player.secret?.ok==='function'&&player.secret.ok(stats)){const l=`${player.secret.e} Secret "${player.secret.n}" → +${player.secret.pts}pts`;sc+=player.secret.pts;lines.push(l);sections.secret.push(l);}
+  else {const l=`${player.secret?.e||'🎯'} Secret "${player.secret?.n||''}" manqué`;lines.push(l);sections.secret.push(l);}
+  return{sc,lines,sections};
+}
+
+const countT=grid=>grid.flat().filter(Boolean).length;
+const LB_KEY='cafe-cortado-v22-best-scores';
+const SAVE_KEY='cafe-cortado-v22-current-game';
+
+function loadBestScores(){ try{return JSON.parse(localStorage.getItem(LB_KEY)||'[]');}catch(e){return [];} }
+function saveBestScores(e){ try{localStorage.setItem(LB_KEY,JSON.stringify(e));}catch(e){} }
+function loadSavedGame(){ try{return JSON.parse(localStorage.getItem(SAVE_KEY)||'null');}catch(e){return null;} }
+function saveCurrentGame(d){ try{localStorage.setItem(SAVE_KEY,JSON.stringify(d));}catch(e){} }
+function clearSavedGame(){ try{localStorage.removeItem(SAVE_KEY);}catch(e){} }
+
+// ─── Window Bar ───────────────────────────────────────────────────────────────
+function WBar({d}){
+  const s={position:'absolute',background:'rgba(255,255,255,0.85)',borderRadius:2,
+    ...(d==='N'?{top:2,left:'28%',width:'44%',height:'11%'}:
+       d==='S'?{bottom:2,left:'28%',width:'44%',height:'11%'}:
+       d==='E'?{right:2,top:'28%',width:'11%',height:'44%'}:
+               {left:2,top:'28%',width:'11%',height:'44%'})};
+  return <div style={s}/>;
+}
+
+// ─── Cell ─────────────────────────────────────────────────────────────────────
+function Cell({tile,valid,rotatable,preview,onClick}){
+  const cfg=tile?T[tile.type]:null;
+  return(
+    <div onClick={()=>{if(valid||rotatable){haptic('medium');onClick?.();}}} className={`cell${tile?' tile-drop':''}${valid?' valid':''}${rotatable?' rotatable':''}`} style={{
+      background:cfg?cfg.bg:preview?'rgba(245,158,11,0.24)':valid?'rgba(34,197,94,0.18)':'rgba(0,0,0,0.07)',
+      border:rotatable?'2.5px solid #F59E0B':preview?'2.5px solid #F59E0B':valid?'2.5px dashed #22C55E':'2px solid transparent',
+      cursor:valid||rotatable?'pointer':'default',
+      boxShadow:tile?'0 2px 7px rgba(0,0,0,.25)':preview?'0 0 14px rgba(245,158,11,.4)':valid?'0 0 10px rgba(34,197,94,.3)':'none',
+    }}>
+      {cfg?cfg.e:valid?<span style={{color:'#16A34A',fontWeight:'bold',fontSize:'clamp(10px,3.5vw,18px)'}}>+</span>:null}
+      {preview&&<span style={{position:'absolute',right:2,bottom:1,background:'#F59E0B',color:'#1C0A00',borderRadius:4,padding:'1px 3px',fontSize:9,fontWeight:'bold'}}>+{preview.pts}</span>}
+      {tile?.type==='touriste'&&(tile.windows||[]).map(d=><WBar key={d} d={d}/>)}
+    </div>
+  );
+}
+
+// ─── VCard ────────────────────────────────────────────────────────────────────
+function VCard({tile,onClick,disabled}){
+  const cfg=T[tile.type];
+  return(
+    <div onClick={disabled?null:()=>{haptic('light');onClick?.();}} className={`vcard${disabled?' disabled':''} pop-in`}
+      style={{background:cfg.bg,color:cfg.fg}}>
+      <div style={{fontSize:'clamp(22px,6vw,30px)',marginBottom:2}}>{cfg.e}</div>
+      <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:.4,lineHeight:1.2}}>{cfg.n}</div>
+      {tile.type==='touriste'&&<div style={{fontSize:9,marginTop:3,opacity:.7}}>🪟 {(tile.windows||[]).join(' ')}</div>}
+    </div>
+  );
+}
+
+// ─── Info Pill ────────────────────────────────────────────────────────────────
+function InfoPill({item,secret=false}){
+  return(
+    <div className="pill">
+      <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'baseline'}}>
+        <strong style={{fontSize:12,color:'#78350F'}}>{item.e} {item.n}</strong>
+        {secret&&<span style={{fontSize:11,fontWeight:'bold',color:'#B45309'}}>+{item.pts}</span>}
+      </div>
+      <div style={{fontSize:11,lineHeight:1.35,opacity:.78,marginTop:3,color:'#78350F'}}>{item.d}</div>
+    </div>
+  );
+}
+
+// ─── Rules Bottom Sheet ───────────────────────────────────────────────────────
+function RulesSheet({open,onClose,leaderboard,onClear}){
+  if(!open)return null;
+  const rules=[
+    ['But du jeu','Construire le café le plus rentable sur une grille 4×4. Fin de partie quand tous les cafés sont remplis.'],
+    ['Tour de jeu','Choisissez une tuile dans la vitrine ou piochez dans le sac, puis placez-la sur une case vide adjacente.'],
+    ['Cortados','Renouveler la vitrine avant de choisir, ou pivoter un Touriste déjà posé. Chaque Cortado restant = +2 pts.'],
+    ['☕ Habitué','+1 pt par Habitué/Comptoir adjacent au moment de la pose.'],
+    ['💻 Nomade','Score final : 1→+1, 2→+3, 3→+6, 4+→+10 pour le plus grand groupe.'],
+    ['📷 Touriste','+2 pts par fenêtre libre au moment de la pose.'],
+    ['📖 Lecteur','+4 pts si calme (sans Nomade ni Touriste adjacent).'],
+    ['🎨 Artiste','+2 pts par type différent adjacent. Si 4 types = +10.'],
+    ['Objectifs publics','3 objectifs tirés en début de partie, visibles de tous.'],
+    ['Objectif secret','1 objectif secret par joueur, révélé au décompte final.'],
+    ['Rôles','Patron, Architecte, Guide, Critique, Entrepreneur ou Conservateur.'],
+    ['Départage','Plus de Cortados restants. Si égalité, victoire partagée.'],
+  ];
+  return(
+    <div className="bottom-sheet-overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="bottom-sheet slide-up">
+        <div className="bottom-sheet-handle"/>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 14px 10px',flexShrink:0}}>
+          <strong style={{fontSize:16,color:'#78350F'}}>📜 Règles</strong>
+          <button onClick={onClose} className="btn-secondary" style={{background:'#78350F',color:'#FEF3C7',border:'none'}}>✕ Fermer</button>
+        </div>
+        <div className="bottom-sheet-body">
+          <div style={{display:'grid',gap:7,marginBottom:20}}>
+            {rules.map(([t,d])=>(
+              <div key={t} className="pill">
+                <div style={{fontSize:12,fontWeight:'bold',color:'#78350F',marginBottom:2}}>{t}</div>
+                <div style={{fontSize:11,lineHeight:1.38,color:'#92400E',opacity:.85}}>{d}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,gap:10}}>
+            <strong style={{fontSize:13,color:'#78350F'}}>🏆 Meilleurs scores</strong>
+            {leaderboard.length>0&&<button onClick={onClear} className="btn-secondary" style={{background:'rgba(120,53,15,.12)',color:'#78350F',border:'1px solid rgba(120,53,15,.18)'}}>Effacer</button>}
+          </div>
+          {leaderboard.length===0
+            ?<div className="pill" style={{fontSize:12,opacity:.7,color:'#78350F'}}>Aucun score enregistré.</div>
+            :<div style={{display:'grid',gap:6}}>
+              {leaderboard.map((s,i)=>(
+                <div key={`${s.date}-${s.player}-${i}`} style={{display:'grid',gridTemplateColumns:'28px 1fr auto',gap:8,alignItems:'center',background:i===0?'rgba(245,158,11,.18)':'rgba(120,53,15,.07)',border:'1px solid rgba(120,53,15,.12)',borderRadius:8,padding:'8px 10px'}}>
+                  <strong style={{fontSize:13,color:'#78350F'}}>{i+1}</strong>
+                  <div><div style={{fontSize:12,fontWeight:'bold',color:'#78350F'}}>{s.emoji} {s.player}</div><div style={{fontSize:10,opacity:.6,color:'#78350F'}}>{s.role} · {s.date}</div></div>
+                  <strong style={{fontSize:16,color:i===0?'#B45309':'#78350F'}}>{s.score}</strong>
+                </div>
+              ))}
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Confirm Quit Sheet ────────────────────────────────────────────────────────
+function ConfirmQuitSheet({open,onCancel,onConfirm}){
+  if(!open)return null;
+  return(
+    <div className="bottom-sheet-overlay" onClick={e=>{if(e.target===e.currentTarget)onCancel();}}>
+      <div className="bottom-sheet slide-up" style={{borderRadius:'16px 16px 0 0'}}>
+        <div className="bottom-sheet-handle"/>
+        <div style={{padding:'4px 14px 14px'}}>
+          <div style={{background:'#991B1B',borderRadius:10,padding:'12px 14px',marginBottom:14}}>
+            <div style={{fontSize:17,fontWeight:'bold',color:'#FFF'}}>Quitter la partie ?</div>
+            <div style={{fontSize:12,color:'rgba(255,255,255,.8)',marginTop:4}}>La partie en cours sera abandonnée.</div>
+          </div>
+          <div className="pill" style={{fontSize:12,marginBottom:14}}>Le classement est conservé. La sauvegarde sera supprimée.</div>
+          <div style={{display:'flex',gap:10}}>
+            <button onClick={onCancel} className="btn-primary" style={{background:'rgba(120,53,15,.12)',color:'#78350F',border:'1px solid rgba(120,53,15,.2)'}}>Annuler</button>
+            <button onClick={()=>{haptic('heavy');onConfirm();}} className="btn-primary" style={{background:'#991B1B',color:'#FFF'}}>Quitter</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Objectives Sheet ─────────────────────────────────────────────────────────
+function ObjectivesSheet({open,onClose,publicObjectives,cpSecret}){
+  if(!open)return null;
+  return(
+    <div className="bottom-sheet-overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="bottom-sheet slide-up">
+        <div className="bottom-sheet-handle"/>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 14px 10px',flexShrink:0}}>
+          <strong style={{fontSize:16,color:'#78350F'}}>🎯 Objectifs</strong>
+          <button onClick={onClose} className="btn-secondary" style={{background:'#78350F',color:'#FEF3C7',border:'none'}}>✕</button>
+        </div>
+        <div className="bottom-sheet-body">
+          <div style={{fontSize:11,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:8}}>Objectifs publics</div>
+          <div style={{display:'grid',gap:7,marginBottom:16}}>{publicObjectives.map(o=><InfoPill key={o.id} item={o}/>)}</div>
+          <div style={{fontSize:11,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:8}}>Objectif secret</div>
+          <InfoPill item={cpSecret} secret/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+function CafeCortado(){
+  const[phase,setPhase]=useState('SETUP');
+  const[nP,setNP]=useState(2);
+  const[players,setPlayers]=useState([]);
+  const[ci,setCi]=useState(0);
+  const[vitrine,setVitrine]=useState([]);
+  const[bag,setBag]=useState([]);
+  const[sel,setSel]=useState(null);
+  const[vPos,setVPos]=useState([]);
+  const[tp,setTp]=useState('DRAFT');
+  const[msg,setMsg]=useState('');
+  const[endData,setEndData]=useState([]);
+  const[publicObjectives,setPublicObjectives]=useState([]);
+  const[showObjectives,setShowObjectives]=useState(false);
+  const[showRules,setShowRules]=useState(false);
+  const[leaderboard,setLeaderboard]=useState(loadBestScores);
+  const[savedGame,setSavedGame]=useState(loadSavedGame);
+  const[preview,setPreview]=useState(null);
+  const[lastScore,setLastScore]=useState(null);
+  const[showQuitConfirm,setShowQuitConfirm]=useState(false);
+  const[activeTab,setActiveTab]=useState('cafe'); // 'cafe' | 'vitrine' | 'info'
+
+  const cp=players[ci];
+
+  useEffect(()=>{
+    if(phase==='SETUP'||phase==='ENDGAME')return;
+    saveCurrentGame({phase,nP,players,ci,vitrine,bag,sel,vPos,tp,msg:'Partie reprise.',endData,publicObjectives});
+    setSavedGame(loadSavedGame());
+  },[phase,nP,players,ci,vitrine,bag,sel,vPos,tp,endData,publicObjectives]);
+
+  function startGame(){
+    clearSavedGame();setSavedGame(null);
+    const all=makeBag();
+    const roles=rnd(ROLES).slice(0,nP),secrets=rnd(SECRET_OBJECTIVES).slice(0,nP),pub=rnd(PUBLIC_OBJECTIVES).slice(0,3);
+    setPublicObjectives(pub);
+    setPlayers(Array.from({length:nP},(_,i)=>({id:i,name:PN[i],color:PC[i],emoji:PE[i],grid:makeGrid(),score:0,cortado:roles[i].id==='patron'?4:3,role:roles[i],secret:secrets[i],architectUsed:false})));
+    setVitrine(all.slice(0,3));setBag(all.slice(3));
+    setCi(0);setSel(null);setVPos([]);setTp('DRAFT');setMsg('');setShowObjectives(false);setPreview(null);setLastScore(null);setPhase('PLAYING');setActiveTab('vitrine');
+  }
+
+  function resumeGame(){
+    const s=loadSavedGame(); if(!s)return;
+    const restoredPlayers=(s.players||[]).map(p=>({...p,role:ROLES.find(r=>r.id===p.role?.id)||p.role,secret:SECRET_OBJECTIVES.find(o=>o.id===p.secret?.id)||p.secret}));
+    const restoredPublic=(s.publicObjectives||[]).map(o=>PUBLIC_OBJECTIVES.find(po=>po.id===o.id)||o);
+    setNP(s.nP||2);setPlayers(restoredPlayers);setCi(s.ci||0);setVitrine(s.vitrine||[]);setBag(s.bag||[]);
+    setSel(s.sel||null);setVPos(s.vPos||[]);setTp(s.tp||'DRAFT');setMsg(s.msg||'Partie reprise.');
+    setEndData(s.endData||[]);setPublicObjectives(restoredPublic);
+    setShowObjectives(false);setPreview(null);setLastScore(null);setPhase(s.phase==='TRANSITION'?'TRANSITION':'PLAYING');
+    setActiveTab(s.tp==='DRAFT'?'vitrine':'cafe');
+  }
+
+  function pickV(tile){
+    if(tp!=='DRAFT')return;
+    let nv=vitrine.filter(t=>t.id!==tile.id),nb=[...bag];
+    if(nb.length){nv.push(nb[0]);nb=nb.slice(1);}
+    setVitrine(nv);setBag(nb);setSel(tile);setVPos(cp.role?.id==='architecte'&&!cp.architectUsed?getAllEmpty(cp.grid):getVP(cp.grid));setTp('PLACE');setPreview(null);
+    setMsg(`${T[tile.type].e} ${T[tile.type].n} — touchez une case verte`);
+    setActiveTab('cafe');
+  }
+
+  function drawBag(){
+    if(tp!=='DRAFT'||!bag.length)return;
+    const tile=bag[0];setBag(bag.slice(1));setSel(tile);setVPos(cp.role?.id==='architecte'&&!cp.architectUsed?getAllEmpty(cp.grid):getVP(cp.grid));setTp('PLACE');setPreview(null);
+    setMsg(`${T[tile.type].e} ${T[tile.type].n} piochée — touchez une case verte`);
+    setActiveTab('cafe');
+  }
+
+  function cA(){
+    if(!cp||cp.cortado<=0||tp!=='DRAFT')return;
+    const all=rnd([...bag,...vitrine]);
+    setVitrine(all.slice(0,3));setBag(all.slice(3));
+    setPlayers(ps=>ps.map((p,i)=>i===ci?{...p,cortado:p.cortado-1}:p));
+    setMsg('☕ Cortado ! Vitrine renouvelée.'); haptic('medium');
+  }
+
+  function place(r,c){
+    if(!sel)return;
+    const tile=sel,ng=cp.grid.map(row=>[...row]);ng[r][c]=tile;
+    const pts=iScore(tile,cp.grid,r,c,cp);
+    const usedArchitect=cp.role?.id==='architecte'&&!cp.architectUsed&&!getVP(cp.grid).some(([pr,pc])=>pr===r&&pc===c);
+    const np=players.map((p,i)=>i===ci?{...p,grid:ng,score:p.score+pts,architectUsed:p.architectUsed||usedArchitect}:p);
+    const detail=iScoreDetail(tile,cp.grid,r,c,cp);
+    setSel(null);setVPos([]);setPreview(null);setLastScore(detail.pts>0?detail:null);
+    setMsg(detail.pts>0?detail.text:'Tuile posée !');
+    haptic(detail.pts>0?'heavy':'light');
+    const placed=countT(ng);
+    if(np.every(p=>countT(p.grid)===G*G)){setPlayers(np);finishGame(np);return;}
+    if(placed===G*G){
+      const ni=(ci+1)%np.length;
+      setPlayers(np);setCi(ni);setTp('DRAFT');setSel(null);setVPos([]);setPhase('TRANSITION');return;
+    }
+    setPlayers(np);setTp('POST');
+  }
+
+  function cB(r,c){
+    if(!cp||cp.cortado<=0)return;
+    const tile=cp.grid[r][c];if(!tile||tile.type!=='touriste')return;
+    const rot={N:'E',E:'S',S:'W',W:'N'};
+    const ng=cp.grid.map(row=>[...row]);ng[r][c]={...tile,windows:(tile.windows||[]).map(d=>rot[d])};
+    setPlayers(ps=>ps.map((p,i)=>i===ci?{...p,grid:ng,cortado:p.cortado-1}:p));
+    setMsg('☕ Cortado ! Tuile 📷 pivotée de 90°.'); haptic('medium');
+  }
+
+  function endTurn(){
+    const ni=(ci+1)%players.length;
+    setCi(ni);setTp('DRAFT');setSel(null);setVPos([]);setPreview(null);setLastScore(null);setMsg('');setPhase('TRANSITION');
+    haptic('light');
+  }
+
+  function finishGame(ps){
+    const src=ps||players;
+    const ctx={maxTokens:Math.max(...src.map(p=>p.cortado))};
+    const data=src.map(p=>{const{sc:ep,lines,sections}=eScore(p,publicObjectives,ctx);return{...p,finalScore:p.score+ep,ep,lines,sections};})
+      .sort((a,b)=>b.finalScore-a.finalScore);
+    const stamp=new Date().toLocaleDateString('fr-FR');
+    const next=[...leaderboard,...data.map(p=>({player:p.name,emoji:p.emoji,score:p.finalScore,role:p.role.n,date:stamp}))]
+      .sort((a,b)=>b.score-a.score).slice(0,10);
+    setLeaderboard(next);saveBestScores(next);
+    clearSavedGame();setSavedGame(null);
+    setEndData(data);setPhase('ENDGAME');
+  }
+
+  function quitGame(){
+    setPhase('SETUP');setPlayers([]);setCi(0);setVitrine([]);setBag([]);
+    setSel(null);setVPos([]);setTp('DRAFT');setMsg('');setEndData([]);
+    setPublicObjectives([]);setShowObjectives(false);setShowRules(false);setShowQuitConfirm(false);setPreview(null);setLastScore(null);
+    clearSavedGame();setSavedGame(null);
+  }
+
+  // ── SETUP ──────────────────────────────────────────────────────────────────
+  if(phase==='SETUP') return(
+    <div className="screen">
+      <RulesSheet open={showRules} onClose={()=>setShowRules(false)} leaderboard={leaderboard} onClear={()=>{setLeaderboard([]);saveBestScores([]);}}/>
+      <div className="setup-screen safe-top safe-bottom">
+        <div style={{fontSize:64,marginBottom:8}}>☕</div>
+        <h1 style={{fontSize:30,fontWeight:'bold',margin:'0 0 4px',letterSpacing:3,textShadow:'0 2px 14px rgba(0,0,0,.7)'}}>CAFÉ CORTADO</h1>
+        <p style={{fontSize:11,opacity:.45,margin:'0 0 32px',letterSpacing:3}}>V2.2 · OBJECTIFS · RÔLES · ARTISTES</p>
+        <div style={{background:'rgba(255,255,255,.1)',borderRadius:16,padding:24,marginBottom:20,width:'100%',maxWidth:360}}>
+          <p style={{margin:'0 0 14px',fontSize:14}}>Nombre de joueurs</p>
+          <div style={{display:'flex',gap:12,justifyContent:'center'}}>
+            {[2,3,4].map(n=>(
+              <button key={n} onClick={()=>{haptic('light');setNP(n);}} className="num-btn" style={{
+                background:nP===n?'#F59E0B':'rgba(255,255,255,.15)',
+                color:nP===n?'#1C0A00':'#FEF3C7',
+                boxShadow:nP===n?'0 4px 14px rgba(245,158,11,.45)':'none',
+              }}>{n}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{marginBottom:22,fontSize:13,opacity:.65,lineHeight:2.4}}>
+          {Array.from({length:nP},(_,i)=><div key={i}>{PE[i]} {PN[i]}</div>)}
+        </div>
+        <button onClick={startGame} className="btn-primary" style={{background:'#F59E0B',color:'#1C0A00',maxWidth:300,letterSpacing:.5}}>
+          ☕ COMMENCER
+        </button>
+        {savedGame&&(
+          <button onClick={resumeGame} className="btn-primary" style={{marginTop:10,background:'rgba(255,255,255,.14)',color:'#FEF3C7',border:'1px solid rgba(255,255,255,.24)',maxWidth:300}}>
+            ↩ Reprendre la partie
+          </button>
+        )}
+        <button onClick={()=>setShowRules(true)} style={{background:'none',border:'none',color:'rgba(255,255,255,.45)',marginTop:20,fontSize:13,textDecoration:'underline'}}>
+          📜 Voir les règles
+        </button>
+      </div>
+    </div>
+  );
+
+  // ── TRANSITION ─────────────────────────────────────────────────────────────
+  if(phase==='TRANSITION'){
+    const np2=players[ci];
+    return(
+      <div className="screen">
+        <div className="transition-screen safe-top safe-bottom" style={{background:np2.color}}>
+          <div style={{fontSize:80,marginBottom:12}}>{np2.emoji}</div>
+          <h2 style={{color:'white',fontSize:28,margin:'0 0 6px',textShadow:'0 2px 8px rgba(0,0,0,.4)'}}>À ton tour !</h2>
+          <p style={{color:'rgba(255,255,255,.9)',fontSize:20,margin:'0 0 6px',fontWeight:'bold'}}>{np2.name}</p>
+          <div style={{background:'rgba(255,255,255,.12)',borderRadius:10,padding:'10px 14px',margin:'6px 0 18px',maxWidth:320,width:'100%'}}>
+            <div style={{color:'white',fontSize:13,fontWeight:'bold'}}>{np2.role.e} {np2.role.n}</div>
+            <div style={{color:'rgba(255,255,255,.72)',fontSize:11,lineHeight:1.35,marginTop:3}}>{np2.role.d}</div>
+            <div style={{color:'rgba(255,255,255,.9)',fontSize:12,marginTop:8}}>🎯 Secret : {np2.secret.e} {np2.secret.n} (+{np2.secret.pts})</div>
+          </div>
+          <p style={{color:'rgba(255,255,255,.55)',fontSize:12,margin:'0 0 28px',maxWidth:280}}>Passe l'appareil, puis appuie sur le bouton.</p>
+          <div style={{display:'flex',gap:16,marginBottom:32}}>
+            {players.map(p=>(
+              <div key={p.id} style={{textAlign:'center',opacity:p.id===ci?1:.3}}>
+                <div style={{fontSize:22}}>{p.emoji}</div>
+                <div style={{color:'white',fontSize:14,fontWeight:p.id===ci?'bold':'normal'}}>{p.score}</div>
+              </div>
+            ))}
+          </div>
+          <button onClick={()=>setPhase('PLAYING')} className="btn-primary" style={{background:'white',color:np2.color,maxWidth:260}}>
+            Je suis prêt →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── ENDGAME ────────────────────────────────────────────────────────────────
+  if(phase==='ENDGAME') return(
+    <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
+      <RulesSheet open={showRules} onClose={()=>setShowRules(false)} leaderboard={leaderboard} onClear={()=>{setLeaderboard([]);saveBestScores([]);}}/>
+      <div className="screen">
+        <div className="end-screen safe-top safe-bottom">
+          <div style={{textAlign:'center',marginBottom:24}}>
+            <div style={{fontSize:48}}>🏆</div>
+            <h1 style={{fontSize:26,margin:'4px 0'}}>Fin de Partie</h1>
+            <p style={{opacity:.5,fontSize:11,margin:0,letterSpacing:2}}>RÉSULTATS & DÉCOMPTE FINAL</p>
+          </div>
+          {endData.map((p,rank)=>(
+            <div key={p.id} style={{background:rank===0?'rgba(245,158,11,.18)':'rgba(255,255,255,.06)',borderRadius:14,padding:16,marginBottom:12,border:rank===0?'1.5px solid rgba(245,158,11,.5)':'1.5px solid rgba(255,255,255,.1)'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+                <div style={{fontSize:16,fontWeight:'bold'}}>{rank===0?'🥇':rank===1?'🥈':'🥉'} {p.emoji} {p.name}</div>
+                <div style={{fontSize:28,fontWeight:'bold',color:rank===0?'#F59E0B':'#FEF3C7'}}>{p.finalScore}<span style={{fontSize:12,fontWeight:'normal',marginLeft:2}}>pts</span></div>
+              </div>
+              <div style={{fontSize:12,opacity:.78,lineHeight:1.65}}>
+                <div>{p.role.e} {p.role.n}</div>
+                <div>{p.secret.e} {p.secret.n}</div>
+                <div>⚡ En jeu : {p.score} pts</div>
+                {[['Tuiles',p.sections?.tuiles],['Rôles',p.sections?.roles],['Objectifs publics',p.sections?.publics],['Secret',p.sections?.secret],['Cortados',p.sections?.cortados]].map(([title,items])=>items&&items.length?(
+                  <div key={title} style={{marginTop:7,paddingTop:6,borderTop:'1px solid rgba(255,255,255,.08)'}}>
+                    <div style={{fontSize:10,textTransform:'uppercase',letterSpacing:1,opacity:.65,marginBottom:2}}>{title}</div>
+                    {items.map((l,i)=><div key={i}>· {l}</div>)}
+                  </div>
+                ):null)}
+              </div>
+            </div>
+          ))}
+          {endData.length>=2&&endData[0].finalScore===endData[1].finalScore&&(
+            <div style={{textAlign:'center',padding:12,background:'rgba(255,255,255,.08)',borderRadius:10,marginBottom:12,fontSize:13}}>Égalité ! Départage : le plus de ☕ Cortados.</div>
+          )}
+          <div style={{background:'rgba(255,255,255,.07)',border:'1px solid rgba(255,255,255,.12)',borderRadius:12,padding:14,margin:'14px 0'}}>
+            <div style={{fontSize:11,letterSpacing:1.2,textTransform:'uppercase',opacity:.65,marginBottom:8}}>Meilleurs scores</div>
+            {leaderboard.slice(0,5).map((s,i)=>(
+              <div key={`${s.date}-${s.player}-${i}`} style={{display:'flex',justifyContent:'space-between',gap:12,fontSize:12,padding:'5px 0',borderTop:i?'1px solid rgba(255,255,255,.08)':'none'}}>
+                <span>{i+1}. {s.emoji} {s.player} · {s.role}</span>
+                <strong>{s.score} pts</strong>
+              </div>
+            ))}
+          </div>
+          <div style={{display:'flex',gap:10,marginTop:8}}>
+            <button onClick={()=>setShowRules(true)} className="btn-primary" style={{background:'rgba(255,255,255,.14)',color:'#FEF3C7',border:'1px solid rgba(255,255,255,.2)'}}>📜 Règles</button>
+            <button onClick={()=>setPhase('SETUP')} className="btn-primary" style={{background:'#F59E0B',color:'#1C0A00'}}>☕ Nouvelle partie</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── PLAYING ────────────────────────────────────────────────────────────────
+  if(!cp)return null;
+  const isDraft=tp==='DRAFT',isPlace=tp==='PLACE',isPost=tp==='POST';
+
+  const tabCafe = ()=>(
+    <div style={{padding:'8px 14px 12px'}}>
+      {/* Messages */}
+      {msg&&(
+        <div className={`${lastScore?'score-pulse':'pop-in'} info-msg`} style={{background:'rgba(22,163,74,.1)',borderLeft:'3px solid #22C55E',color:'#14532D'}}>
+          {msg}
+        </div>
+      )}
+
+      {/* Selected tile indicator */}
+      {sel&&isPlace&&(
+        <div className="info-msg pop-in" style={{background:T[sel.type].bg,color:T[sel.type].fg,textAlign:'center',fontWeight:'bold',marginBottom:4}}>
+          {T[sel.type].e} {T[sel.type].n} — touchez une case verte
+          {sel.type==='touriste'?` — Fenêtres : ${(sel.windows||[]).join(' ')}`:null}
+        </div>
+      )}
+
+      {/* Cortado POST hint */}
+      {isPost&&cp.cortado>0&&(
+        <div className="info-msg pop-in" style={{background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.3)',color:'#78350F'}}>
+          ☕ Touchez un 📷 Touriste (bordure dorée) pour le pivoter de 90° — {cp.cortado} Cortado{cp.cortado>1?'s':''} disponible{cp.cortado>1?'s':''}
+        </div>
+      )}
+
+      {/* Grid */}
+      <div style={{fontSize:11,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:7}}>
+        🏪 Votre Café — {countT(cp.grid)}/{G*G} tuiles
+      </div>
+      <div className="cafe-grid">
+        {Array.from({length:G},(_,r)=>Array.from({length:G},(_,c)=>{
+          const tile=cp.grid[r][c];
+          const vp=isPlace&&vPos.some(([pr,pc])=>pr===r&&pc===c);
+          const rot=isPost&&cp.cortado>0&&tile?.type==='touriste';
+          const pv=vp&&preview?.r===r&&preview?.c===c?preview:null;
+          return<Cell key={`${r}-${c}`} tile={tile} valid={vp} rotatable={rot} preview={pv}
+            onClick={()=>{if(vp)place(r,c);else if(rot)cB(r,c);}}
+            onEnter={()=>{if(vp&&sel)setPreview({...iScoreDetail(sel,cp.grid,r,c,cp),r,c});}}
+          />;
+        })).flat()}
+      </div>
+      <div style={{marginTop:5,fontSize:10,color:'#92400E',opacity:.55,textAlign:'right'}}>
+        🏪 Comptoir en haut à gauche — posez adjacent aux tuiles
+      </div>
+
+      {/* Score ref */}
+      <div style={{marginTop:14,fontSize:10,color:'#92400E',textTransform:'uppercase',letterSpacing:1,marginBottom:6,opacity:.65}}>Référence scoring</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5}}>
+        {[
+          ['habitue','⚡ +1 par Habitué/Comptoir adj'],
+          ['nomade','🏁 1→+1, 2→+3, 3→+6, 4+→+10'],
+          ['touriste','⚡ +2 par fenêtre libre'],
+          ['lecteur','🏁 +4 si sans Nomade/Touriste adj'],
+          ['artiste','🏁 +2/type adj, +10 si 4 types'],
+        ].map(([k,desc])=>(
+          <div key={k} style={{display:'flex',alignItems:'flex-start',gap:6,background:'rgba(120,53,15,.06)',borderRadius:7,padding:'6px 7px'}}>
+            <span style={{width:20,height:20,borderRadius:4,background:T[k].bg,display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,flexShrink:0,marginTop:1}}>{T[k].e}</span>
+            <span style={{color:'#78350F',fontSize:10,lineHeight:1.4,opacity:.85}}>{desc}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const tabVitrine = ()=>(
+    <div style={{padding:'8px 14px 12px'}}>
+      {msg&&(
+        <div className={`${lastScore?'score-pulse':'pop-in'} info-msg`} style={{background:'rgba(22,163,74,.1)',borderLeft:'3px solid #22C55E',color:'#14532D',marginBottom:8}}>
+          {msg}
+        </div>
+      )}
+
+      {isPost?(
+        <div>
+          <div className="info-msg" style={{background:'rgba(120,53,15,.08)',color:'#78350F',textAlign:'center',fontSize:14}}>
+            ✅ Tuile posée — terminez votre tour
+          </div>
+          {cp.cortado>0&&(
+            <div className="info-msg pop-in" style={{background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.3)',color:'#78350F',marginTop:8}}>
+              ☕ Vous pouvez encore pivoter un 📷 Touriste (onglet Café) avec vos {cp.cortado} Cortado{cp.cortado>1?'s':''}
+            </div>
+          )}
+        </div>
+      ):(
+        <>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+            <span style={{fontSize:11,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1.2}}>🪟 La Vitrine</span>
+            {isDraft&&cp.cortado>0&&(
+              <button onClick={cA} className="btn-secondary" style={{background:'#F59E0B',color:'#1C0A00',border:'none',boxShadow:'0 2px 8px rgba(0,0,0,.2)'}}>
+                ☕ Renouveler ({cp.cortado})
+              </button>
+            )}
+          </div>
+          {isPlace&&(
+            <div className="info-msg pop-in" style={{background:T[sel.type].bg,color:T[sel.type].fg,textAlign:'center',fontWeight:'bold',marginBottom:8}}>
+              {T[sel.type].e} {T[sel.type].n} sélectionné — allez sur Café pour placer
+            </div>
+          )}
+          <div className="vitrine-row">
+            {vitrine.map(tile=>(
+              <VCard key={tile.id} tile={tile} disabled={!isDraft} onClick={()=>pickV(tile)}/>
+            ))}
+          </div>
+          {isDraft&&(
+            <button onClick={drawBag} disabled={!bag.length} className="btn-primary" style={{
+              background:'#78350F',color:'#FEF3C7',marginTop:4,
+              opacity:bag.length?1:.45,cursor:bag.length?'pointer':'not-allowed',
+            }}>
+              🎲 Piocher dans le sac ({bag.length} tuile{bag.length!==1?'s':''})
+            </button>
+          )}
+        </>
+      )}
+
+      {/* Objectives mini display */}
+      <div style={{marginTop:16}}>
+        <div style={{fontSize:11,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:7}}>Objectifs publics</div>
+        <div style={{display:'grid',gap:5}}>
+          {publicObjectives.map(o=><InfoPill key={o.id} item={o}/>)}
+        </div>
+        <div style={{fontSize:11,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginTop:10,marginBottom:7}}>Objectif secret</div>
+        <InfoPill item={cp.secret} secret/>
+      </div>
+    </div>
+  );
+
+  const tabInfo = ()=>(
+    <div style={{padding:'8px 14px 12px'}}>
+      {/* Role card */}
+      <div style={{background:'rgba(120,53,15,.1)',border:'1px solid rgba(120,53,15,.2)',borderRadius:12,padding:14,marginBottom:12}}>
+        <div style={{fontSize:13,fontWeight:'bold',color:'#78350F',marginBottom:4}}>
+          {cp.role.e} {cp.role.n}
+        </div>
+        <div style={{fontSize:12,color:'#92400E',lineHeight:1.45}}>{cp.role.d}</div>
+      </div>
+
+      {/* All players */}
+      <div style={{fontSize:11,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:8}}>Scores</div>
+      <div style={{display:'grid',gap:6,marginBottom:14}}>
+        {players.map(p=>(
+          <div key={p.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',background:p.id===ci?'rgba(120,53,15,.12)':'rgba(120,53,15,.05)',border:`1px solid ${p.id===ci?'rgba(120,53,15,.25)':'rgba(120,53,15,.1)'}`,borderRadius:10,padding:'9px 12px'}}>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <span style={{fontSize:20}}>{p.emoji}</span>
+              <div>
+                <div style={{fontSize:13,fontWeight:p.id===ci?'bold':'normal',color:p.color}}>{p.name}</div>
+                <div style={{fontSize:10,color:'#92400E',opacity:.7}}>{p.role.e} {p.role.n}</div>
+              </div>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div style={{fontSize:20,fontWeight:'bold',color:p.id===ci?'#78350F':'#92400E'}}>{p.score}</div>
+              <div style={{fontSize:10,color:'#92400E',opacity:.7}}>☕×{p.cortado}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Grids summary */}
+      <div style={{fontSize:11,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:8}}>Progression des cafés</div>
+      <div style={{display:'grid',gridTemplateColumns:players.length===2?'1fr 1fr':players.length===3?'1fr 1fr 1fr':'1fr 1fr',gap:8}}>
+        {players.map(p=>(
+          <div key={p.id} style={{background:'rgba(120,53,15,.06)',borderRadius:10,padding:8}}>
+            <div style={{fontSize:10,fontWeight:'bold',color:p.color,marginBottom:5,textAlign:'center'}}>{p.emoji} {countT(p.grid)}/{G*G}</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:2,background:'rgba(120,53,15,.15)',padding:3,borderRadius:6}}>
+              {Array.from({length:G},(_,r)=>Array.from({length:G},(_,c)=>{
+                const tile=p.grid[r][c];
+                return<div key={`${r}-${c}`} style={{aspectRatio:'1',borderRadius:3,background:tile?T[tile.type].bg:'rgba(255,255,255,.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'clamp(6px,2vw,10px)'}}>
+                  {tile?T[tile.type].e:null}
+                </div>;
+              })).flat()}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#F5EDD8'}}>
+      <RulesSheet open={showRules} onClose={()=>setShowRules(false)} leaderboard={leaderboard} onClear={()=>{setLeaderboard([]);saveBestScores([]);}}/>
+      <ConfirmQuitSheet open={showQuitConfirm} onCancel={()=>setShowQuitConfirm(false)} onConfirm={quitGame}/>
+
+      {/* Header */}
+      <div className="game-header" style={{background:cp.color}}>
+        <div>
+          <div style={{color:'white',fontSize:15,fontWeight:'bold',letterSpacing:.3}}>
+            {cp.emoji} {cp.name}
+          </div>
+          <div style={{color:'rgba(255,255,255,.65)',fontSize:10,marginTop:2}}>
+            {isDraft?'→ Choisissez une tuile':isPlace?'→ Placez sur votre café':'→ Terminez ou pivotez un Touriste'}
+          </div>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{textAlign:'right'}}>
+            <div style={{color:'white',fontSize:24,fontWeight:'bold'}}>{cp.score}<span style={{fontSize:11,fontWeight:'normal',marginLeft:2}}>pts</span></div>
+            <div style={{color:'rgba(255,255,255,.65)',fontSize:11}}>☕×{cp.cortado}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Player strip */}
+      <div style={{flexShrink:0,display:'flex',justifyContent:'space-around',padding:'7px 16px',background:'rgba(120,53,15,.08)',borderBottom:'1px solid rgba(120,53,15,.12)'}}>
+        {players.map(p=>(
+          <div key={p.id} className="player-dot" style={{opacity:p.id===ci?1:.4,background:p.id===ci?'rgba(120,53,15,.1)':'transparent'}}>
+            <span style={{fontSize:18}}>{p.emoji}</span>
+            <span style={{fontSize:12,fontWeight:p.id===ci?'bold':'normal',color:p.color}}>{p.score}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      <div className="game-body">
+        {activeTab==='cafe'?tabCafe():activeTab==='vitrine'?tabVitrine():tabInfo()}
+      </div>
+
+      {/* End turn bar (only in POST) */}
+      {isPost&&(
+        <div className="end-turn-bar">
+          <button onClick={endTurn} className="btn-primary" style={{background:cp.color,color:'white'}}>
+            Fin de mon tour →
+          </button>
+        </div>
+      )}
+
+      {/* Bottom navigation */}
+      <nav className="bottom-nav">
+        <button className={activeTab==='vitrine'?'active':''} onClick={()=>{haptic('light');setActiveTab('vitrine');}}>
+          <span className="nav-icon">🪟</span>
+          Vitrine{bag.length>0?` (${bag.length})`:''}
+        </button>
+        <button className={activeTab==='cafe'?'active':''} onClick={()=>{haptic('light');setActiveTab('cafe');}}>
+          <span className="nav-icon">🏪</span>
+          Café
+          {(isPlace||isPost)&&<span style={{position:'absolute',top:4,right:10,background:'#F59E0B',borderRadius:'50%',width:8,height:8}}/>}
+        </button>
+        <button className={activeTab==='info'?'active':''} onClick={()=>{haptic('light');setActiveTab('info');}}>
+          <span className="nav-icon">👥</span>
+          Joueurs
+        </button>
+        <button onClick={()=>{haptic('light');setShowRules(true);}}>
+          <span className="nav-icon">📜</span>
+          Règles
+        </button>
+        <button onClick={()=>{haptic('light');setShowQuitConfirm(true);}}>
+          <span className="nav-icon">✕</span>
+          Quitter
+        </button>
+      </nav>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<CafeCortado />);
+</script>
+</body>
+</html>
