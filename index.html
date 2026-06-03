@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Café Cortado">
-<link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest.json" />
 <title>Café Cortado</title>
 <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -548,10 +548,57 @@ function WBar({d}){
 }
 
 // ─── Cell ─────────────────────────────────────────────────────────────────────
-function Cell({tile,valid,rotatable,preview,onClick}){
-  const cfg=tile?T[tile.type]:null;
+function tilePowerText(tile){
+  if(!tile)return null;
+  const cfg=T[tile.type];
+  const lines={
+    comptoir:['Point de départ du café.', 'Les Habitués et certains objectifs aiment être proches du comptoir.'],
+    habitue:['Score immédiat + Pouvoir.', '+1 point pour chaque Habitué ou Comptoir adjacent au moment de la pose.', 'Après la pose, choisissez un type de client à favoriser : 2 copies supplémentaires sont mélangées dans le sac et la vitrine est renouvelée.'],
+    nomade:['Score final.', 'Le plus grand groupe connecté rapporte 1, 3, 6 ou 10 points selon sa taille.'],
+    touriste:['Score immédiat.', '+2 points pour chaque fenêtre libre indiquée sur la tuile.'],
+    lecteur:['Score final.', '+4 points si aucun Nomade ni Touriste ne lui est adjacent.'],
+    artiste:['Score final.', '+2 points par type de client adjacent, ou +10 avec 4 types différents.'],
+  }[tile.type]||[];
+  return {title:`${cfg.e} ${cfg.n}`,body:lines,meta:tile.type==='touriste'?`Fenêtres : ${(tile.windows||[]).join(' ')}`:null};
+}
+
+function TileInfoSheet({tile,onClose}){
+  const info=tilePowerText(tile);
+  if(!info)return null;
   return(
-    <div onClick={()=>{if(valid||rotatable){haptic('medium');onClick?.();}}} className={`cell${tile?' tile-drop':''}${valid?' valid':''}${rotatable?' rotatable':''}`} style={{
+    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:220,background:'rgba(28,10,0,.58)',display:'flex',alignItems:'flex-end',padding:12}}>
+      <div onClick={e=>e.stopPropagation()} className="pop-in" style={{width:'100%',background:'#F5EDD8',color:'#78350F',borderRadius:'16px 16px 12px 12px',overflow:'hidden',boxShadow:'0 -14px 45px rgba(0,0,0,.38)'}}>
+        <div style={{background:T[tile.type].bg,color:T[tile.type].fg,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}>
+          <strong style={{fontSize:18}}>{info.title}</strong>
+          <button onClick={onClose} className="btn-secondary" style={{background:'rgba(255,255,255,.18)',color:T[tile.type].fg,border:'1px solid rgba(255,255,255,.3)'}}>OK</button>
+        </div>
+        <div style={{padding:16,fontSize:13,lineHeight:1.45}}>
+          {info.body.map((line,i)=><div key={i} style={{marginTop:i?8:0,opacity:i?0.82:1,fontWeight:i===0?'bold':'normal'}}>{line}</div>)}
+          {info.meta&&<div style={{marginTop:12,background:'rgba(120,53,15,.08)',border:'1px solid rgba(120,53,15,.13)',borderRadius:8,padding:10,fontSize:12,fontWeight:'bold'}}>{info.meta}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Cell({tile,valid,rotatable,preview,onClick,onInfo}){
+  const cfg=tile?T[tile.type]:null;
+  const pressTimer=useRef(null);
+  const didLongPress=useRef(false);
+  const startPress=()=>{
+    didLongPress.current=false;
+    if(!tile||!onInfo)return;
+    clearTimeout(pressTimer.current);
+    pressTimer.current=setTimeout(()=>{didLongPress.current=true;haptic('medium');onInfo(tile);},520);
+  };
+  const endPress=()=>{
+    clearTimeout(pressTimer.current);
+    setTimeout(()=>{didLongPress.current=false;},0);
+  };
+  return(
+    <div onClick={e=>{if(didLongPress.current){e.preventDefault();return;}if(valid||rotatable){haptic('medium');onClick?.();}}}
+      onPointerDown={startPress} onPointerUp={endPress} onPointerCancel={endPress} onPointerLeave={endPress}
+      className={`cell${tile?' tile-drop':''}${valid?' valid':''}${rotatable?' rotatable':''}`} style={{
       background:cfg?cfg.bg:preview?'rgba(245,158,11,0.24)':valid?'rgba(34,197,94,0.18)':'rgba(0,0,0,0.07)',
       border:rotatable?'2.5px solid #F59E0B':preview?'2.5px solid #F59E0B':valid?'2.5px dashed #22C55E':'2px solid transparent',
       cursor:valid||rotatable?'pointer':'default',
@@ -565,13 +612,26 @@ function Cell({tile,valid,rotatable,preview,onClick}){
 }
 
 // ─── VCard ────────────────────────────────────────────────────────────────────
-function VCard({tile,onClick,disabled}){
+function VCard({tile,onClick,disabled,onInfo,compact=false}){
   const cfg=T[tile.type];
+  const pressTimer=useRef(null);
+  const didLongPress=useRef(false);
+  const startPress=()=>{
+    didLongPress.current=false;
+    clearTimeout(pressTimer.current);
+    pressTimer.current=setTimeout(()=>{didLongPress.current=true;haptic('medium');onInfo?.(tile);},520);
+  };
+  const endPress=()=>{
+    clearTimeout(pressTimer.current);
+    setTimeout(()=>{didLongPress.current=false;},0);
+  };
   return(
-    <div onClick={disabled?null:()=>{haptic('light');onClick?.();}} className={`vcard${disabled?' disabled':''} pop-in`}
-      style={{background:cfg.bg,color:cfg.fg}}>
-      <div style={{fontSize:'clamp(22px,6vw,30px)',marginBottom:2}}>{cfg.e}</div>
-      <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:.4,lineHeight:1.2}}>{cfg.n}</div>
+    <div onClick={e=>{if(didLongPress.current){e.preventDefault();return;}if(!disabled){haptic('light');onClick?.();}}}
+      onPointerDown={startPress} onPointerUp={endPress} onPointerCancel={endPress} onPointerLeave={endPress}
+      className={`vcard${disabled?' disabled':''} pop-in`}
+      style={{background:cfg.bg,color:cfg.fg,padding:compact?'7px 5px':'10px 6px'}}>
+      <div style={{fontSize:compact?'clamp(18px,5vw,24px)':'clamp(22px,6vw,30px)',marginBottom:2}}>{cfg.e}</div>
+      <div style={{fontSize:compact?9:10,fontWeight:700,textTransform:'uppercase',letterSpacing:.4,lineHeight:1.2}}>{cfg.n}</div>
       {tile.type==='touriste'&&<div style={{fontSize:9,marginTop:3,opacity:.7}}>🪟 {(tile.windows||[]).join(' ')}</div>}
     </div>
   );
@@ -590,6 +650,54 @@ function InfoPill({item,secret=false}){
   );
 }
 
+// ─── Habitué Picker Sheet ─────────────────────────────────────────────────────
+const HABITUE_CHOICES = ['habitue','nomade','touriste','lecteur','artiste'];
+function HabituePickerSheet({open,onChoose,onSkip}){
+  if(!open)return null;
+  return(
+    <div className="bottom-sheet-overlay" onClick={e=>{if(e.target===e.currentTarget)onSkip();}}>
+      <div className="bottom-sheet slide-up">
+        <div className="bottom-sheet-handle"/>
+        <div style={{padding:'4px 14px 16px'}}>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:16,fontWeight:'bold',color:'#78350F',marginBottom:4}}>☕ Pouvoir de l'Habitué</div>
+            <div style={{fontSize:12,color:'#92400E',lineHeight:1.4}}>
+              Choisissez un type de client à favoriser — 2 copies supplémentaires sont ajoutées dans le sac et la vitrine est immédiatement renouvelée.
+            </div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+            {HABITUE_CHOICES.map(type=>(
+              <button key={type} onClick={()=>onChoose(type)} style={{
+                display:'flex',alignItems:'center',gap:10,
+                background:T[type].bg,color:T[type].fg,
+                border:'none',borderRadius:12,padding:'12px 14px',
+                fontFamily:'Georgia,serif',cursor:'pointer',
+                boxShadow:'0 3px 10px rgba(0,0,0,.25)',
+                transition:'transform .1s',
+              }}
+              onPointerDown={e=>e.currentTarget.style.transform='scale(.96)'}
+              onPointerUp={e=>e.currentTarget.style.transform='scale(1)'}
+              onPointerLeave={e=>e.currentTarget.style.transform='scale(1)'}
+              >
+                <span style={{fontSize:24}}>{T[type].e}</span>
+                <div style={{textAlign:'left'}}>
+                  <div style={{fontSize:13,fontWeight:'bold'}}>{T[type].n}</div>
+                  <div style={{fontSize:10,opacity:.75}}>+2 dans le sac</div>
+                </div>
+              </button>
+            ))}
+          </div>
+          <button onClick={onSkip} style={{
+            width:'100%',padding:'11px',background:'rgba(120,53,15,.1)',color:'#78350F',
+            border:'1px solid rgba(120,53,15,.2)',borderRadius:10,fontSize:13,
+            fontFamily:'Georgia,serif',cursor:'pointer',
+          }}>Passer — ne rien favoriser</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Rules Bottom Sheet ───────────────────────────────────────────────────────
 function RulesSheet({open,onClose,leaderboard,onClear}){
   if(!open)return null;
@@ -597,7 +705,7 @@ function RulesSheet({open,onClose,leaderboard,onClear}){
     ['But du jeu','Construire le café le plus rentable sur une grille 4×4. Fin de partie quand tous les cafés sont remplis.'],
     ['Tour de jeu','Choisissez une tuile dans la vitrine ou piochez dans le sac, puis placez-la sur une case vide adjacente.'],
     ['Cortados','Renouveler la vitrine avant de choisir, ou pivoter un Touriste déjà posé. Chaque Cortado restant = +2 pts.'],
-    ['☕ Habitué','+1 pt par Habitué/Comptoir adjacent au moment de la pose.'],
+    ['☕ Habitué','+1 pt par Habitué/Comptoir adjacent. Après la pose : choisissez un type favori, +2 copies dans le sac + vitrine renouvelée.'],
     ['💻 Nomade','Score final : 1→+1, 2→+3, 3→+6, 4+→+10 pour le plus grand groupe.'],
     ['📷 Touriste','+2 pts par fenêtre libre au moment de la pose.'],
     ['📖 Lecteur','+4 pts si calme (sans Nomade ni Touriste adjacent).'],
@@ -634,7 +742,7 @@ function RulesSheet({open,onClose,leaderboard,onClear}){
               {leaderboard.map((s,i)=>(
                 <div key={`${s.date}-${s.player}-${i}`} style={{display:'grid',gridTemplateColumns:'28px 1fr auto',gap:8,alignItems:'center',background:i===0?'rgba(245,158,11,.18)':'rgba(120,53,15,.07)',border:'1px solid rgba(120,53,15,.12)',borderRadius:8,padding:'8px 10px'}}>
                   <strong style={{fontSize:13,color:'#78350F'}}>{i+1}</strong>
-                  <div><div style={{fontSize:12,fontWeight:'bold',color:'#78350F'}}>{s.emoji} {s.player}</div><div style={{fontSize:10,opacity:.6,color:'#78350F'}}>{s.role} · {s.date}</div></div>
+                  <div><div style={{fontSize:12,fontWeight:'bold',color:'#78350F'}}>{s.emoji} {s.player}</div><div style={{fontSize:10,opacity:.6,color:'#78350F'}}>{s.mode==='solo'?'Solo · ':''}{s.role} · {s.date}</div></div>
                   <strong style={{fontSize:16,color:i===0?'#B45309':'#78350F'}}>{s.score}</strong>
                 </div>
               ))}
@@ -711,8 +819,11 @@ function CafeCortado(){
   const[savedGame,setSavedGame]=useState(loadSavedGame);
   const[preview,setPreview]=useState(null);
   const[lastScore,setLastScore]=useState(null);
+  const[infoTile,setInfoTile]=useState(null);
+  const[soloRecordResult,setSoloRecordResult]=useState(null);
   const[showQuitConfirm,setShowQuitConfirm]=useState(false);
   const[activeTab,setActiveTab]=useState('cafe'); // 'cafe' | 'vitrine' | 'info'
+  const[habituePickerPending,setHabituePickerPending]=useState(false);
 
   const cp=players[ci];
 
@@ -727,9 +838,9 @@ function CafeCortado(){
     const all=makeBag();
     const roles=rnd(ROLES).slice(0,nP),secrets=rnd(SECRET_OBJECTIVES).slice(0,nP),pub=rnd(PUBLIC_OBJECTIVES).slice(0,3);
     setPublicObjectives(pub);
-    setPlayers(Array.from({length:nP},(_,i)=>({id:i,name:PN[i],color:PC[i],emoji:PE[i],grid:makeGrid(),score:0,cortado:roles[i].id==='patron'?4:3,role:roles[i],secret:secrets[i],architectUsed:false})));
+    setPlayers(Array.from({length:nP},(_,i)=>({id:i,name:nP===1?'Solo':PN[i],color:PC[i],emoji:PE[i],grid:makeGrid(),score:0,cortado:roles[i].id==='patron'?4:3,role:roles[i],secret:secrets[i],architectUsed:false})));
     setVitrine(all.slice(0,3));setBag(all.slice(3));
-    setCi(0);setSel(null);setVPos([]);setTp('DRAFT');setMsg('');setShowObjectives(false);setPreview(null);setLastScore(null);setPhase('PLAYING');setActiveTab('vitrine');
+    setCi(0);setSel(null);setVPos([]);setTp('DRAFT');setMsg('');setShowObjectives(false);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);setPhase('PLAYING');setActiveTab('vitrine');
   }
 
   function resumeGame(){
@@ -784,6 +895,35 @@ function CafeCortado(){
       setPlayers(np);setCi(ni);setTp('DRAFT');setSel(null);setVPos([]);setPhase('TRANSITION');return;
     }
     setPlayers(np);setTp('POST');
+    if(tile.type==='habitue') setHabituePickerPending(true);
+  }
+
+  function applyHabitueFavori(type){
+    if(!type){setHabituePickerPending(false);return;}
+    haptic('medium');
+    // Build 2 extra tiles of chosen type and inject into bag
+    let maxId=0;
+    players.forEach(p=>p.grid.flat().forEach(t=>{if(t&&t.id>=maxId)maxId=t.id+1;}));
+    bag.forEach(t=>{if(t.id>=maxId)maxId=t.id+1;});
+    vitrine.forEach(t=>{if(t.id>=maxId)maxId=t.id+1;});
+    const extra=[
+      {id:maxId,type,...(type==='touriste'?{windows:rnd([...WIN_PAT])[0]}:{})},
+      {id:maxId+1,type,...(type==='touriste'?{windows:rnd([...WIN_PAT])[0]}:{})},
+    ];
+    // Shuffle extras into bag at random positions
+    const newBag=rnd([...bag,...extra]);
+    // Refresh vitrine: take 3 from the new bag
+    const newVitrine=[...vitrine];
+    let remainBag=newBag;
+    // Fill vitrine back to 3 if needed, then add 1 guaranteed refresh with new tiles
+    // Strategy: reshuffle vitrine+bag together then redraw
+    const all=rnd([...newVitrine,...remainBag]);
+    const refreshedVitrine=all.slice(0,3);
+    const refreshedBag=all.slice(3);
+    setVitrine(refreshedVitrine);
+    setBag(refreshedBag);
+    setMsg(`☕ Habitué ! ${T[type].e} ${T[type].n} favorisé — vitrine renouvelée.`);
+    setHabituePickerPending(false);
   }
 
   function cB(r,c){
@@ -796,6 +936,11 @@ function CafeCortado(){
   }
 
   function endTurn(){
+    if(players.length===1){
+      setTp('DRAFT');setSel(null);setVPos([]);setPreview(null);setLastScore(null);setMsg('');
+      haptic('light');
+      return;
+    }
     const ni=(ci+1)%players.length;
     setCi(ni);setTp('DRAFT');setSel(null);setVPos([]);setPreview(null);setLastScore(null);setMsg('');setPhase('TRANSITION');
     haptic('light');
@@ -806,8 +951,11 @@ function CafeCortado(){
     const ctx={maxTokens:Math.max(...src.map(p=>p.cortado))};
     const data=src.map(p=>{const{sc:ep,lines,sections}=eScore(p,publicObjectives,ctx);return{...p,finalScore:p.score+ep,ep,lines,sections};})
       .sort((a,b)=>b.finalScore-a.finalScore);
+    const previousSoloBest=src.length===1?leaderboard.filter(s=>s.mode==='solo'||s.player==='Solo').reduce((m,s)=>Math.max(m,s.score||0),0):null;
+    if(src.length===1)setSoloRecordResult({previous:previousSoloBest,score:data[0]?.finalScore||0,beat:(data[0]?.finalScore||0)>previousSoloBest});
+    else setSoloRecordResult(null);
     const stamp=new Date().toLocaleDateString('fr-FR');
-    const next=[...leaderboard,...data.map(p=>({player:p.name,emoji:p.emoji,score:p.finalScore,role:p.role.n,date:stamp}))]
+    const next=[...leaderboard,...data.map(p=>({player:p.name,emoji:p.emoji,score:p.finalScore,role:p.role.n,date:stamp,mode:src.length===1?'solo':'multi'}))]
       .sort((a,b)=>b.score-a.score).slice(0,10);
     setLeaderboard(next);saveBestScores(next);
     clearSavedGame();setSavedGame(null);
@@ -817,7 +965,7 @@ function CafeCortado(){
   function quitGame(){
     setPhase('SETUP');setPlayers([]);setCi(0);setVitrine([]);setBag([]);
     setSel(null);setVPos([]);setTp('DRAFT');setMsg('');setEndData([]);
-    setPublicObjectives([]);setShowObjectives(false);setShowRules(false);setShowQuitConfirm(false);setPreview(null);setLastScore(null);
+    setPublicObjectives([]);setShowObjectives(false);setShowRules(false);setShowQuitConfirm(false);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);
     clearSavedGame();setSavedGame(null);
   }
 
@@ -830,9 +978,9 @@ function CafeCortado(){
         <h1 style={{fontSize:30,fontWeight:'bold',margin:'0 0 4px',letterSpacing:3,textShadow:'0 2px 14px rgba(0,0,0,.7)'}}>CAFÉ CORTADO</h1>
         <p style={{fontSize:11,opacity:.45,margin:'0 0 32px',letterSpacing:3}}>V2.2 · OBJECTIFS · RÔLES · ARTISTES</p>
         <div style={{background:'rgba(255,255,255,.1)',borderRadius:16,padding:24,marginBottom:20,width:'100%',maxWidth:360}}>
-          <p style={{margin:'0 0 14px',fontSize:14}}>Nombre de joueurs</p>
+          <p style={{margin:'0 0 14px',fontSize:14}}>{nP===1?'Mode solo':'Nombre de joueurs'}</p>
           <div style={{display:'flex',gap:12,justifyContent:'center'}}>
-            {[2,3,4].map(n=>(
+            {[1,2,3,4].map(n=>(
               <button key={n} onClick={()=>{haptic('light');setNP(n);}} className="num-btn" style={{
                 background:nP===n?'#F59E0B':'rgba(255,255,255,.15)',
                 color:nP===n?'#1C0A00':'#FEF3C7',
@@ -840,9 +988,14 @@ function CafeCortado(){
               }}>{n}</button>
             ))}
           </div>
+          {nP===1&&(
+            <div style={{marginTop:12,fontSize:12,lineHeight:1.35,opacity:.78}}>
+              Remplissez votre café et tentez de battre votre record.
+            </div>
+          )}
         </div>
         <div style={{marginBottom:22,fontSize:13,opacity:.65,lineHeight:2.4}}>
-          {Array.from({length:nP},(_,i)=><div key={i}>{PE[i]} {PN[i]}</div>)}
+          {nP===1?<div>{PE[0]} Solo</div>:Array.from({length:nP},(_,i)=><div key={i}>{PE[i]} {PN[i]}</div>)}
         </div>
         <button onClick={startGame} className="btn-primary" style={{background:'#F59E0B',color:'#1C0A00',maxWidth:300,letterSpacing:.5}}>
           ☕ COMMENCER
@@ -901,6 +1054,17 @@ function CafeCortado(){
             <h1 style={{fontSize:26,margin:'4px 0'}}>Fin de Partie</h1>
             <p style={{opacity:.5,fontSize:11,margin:0,letterSpacing:2}}>RÉSULTATS & DÉCOMPTE FINAL</p>
           </div>
+          {soloRecordResult&&(
+            <div style={{background:soloRecordResult.beat?'rgba(245,158,11,.2)':'rgba(255,255,255,.08)',border:soloRecordResult.beat?'1.5px solid rgba(245,158,11,.55)':'1.5px solid rgba(255,255,255,.13)',borderRadius:12,padding:14,marginBottom:14,textAlign:'center'}}>
+              <div style={{fontSize:15,fontWeight:'bold'}}>
+                {soloRecordResult.beat?'Nouveau record solo !':'Record solo à battre'}
+              </div>
+              <div style={{fontSize:12,opacity:.78,marginTop:4}}>
+                Score : {soloRecordResult.score} pts
+                {soloRecordResult.previous>0?` · Ancien record : ${soloRecordResult.previous} pts`:' · Premier score enregistré'}
+              </div>
+            </div>
+          )}
           {endData.map((p,rank)=>(
             <div key={p.id} style={{background:rank===0?'rgba(245,158,11,.18)':'rgba(255,255,255,.06)',borderRadius:14,padding:16,marginBottom:12,border:rank===0?'1.5px solid rgba(245,158,11,.5)':'1.5px solid rgba(255,255,255,.1)'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
@@ -927,7 +1091,7 @@ function CafeCortado(){
             <div style={{fontSize:11,letterSpacing:1.2,textTransform:'uppercase',opacity:.65,marginBottom:8}}>Meilleurs scores</div>
             {leaderboard.slice(0,5).map((s,i)=>(
               <div key={`${s.date}-${s.player}-${i}`} style={{display:'flex',justifyContent:'space-between',gap:12,fontSize:12,padding:'5px 0',borderTop:i?'1px solid rgba(255,255,255,.08)':'none'}}>
-                <span>{i+1}. {s.emoji} {s.player} · {s.role}</span>
+                <span>{i+1}. {s.emoji} {s.player} · {s.mode==='solo'?'Solo · ':''}{s.role}</span>
                 <strong>{s.score} pts</strong>
               </div>
             ))}
@@ -956,7 +1120,7 @@ function CafeCortado(){
 
       {/* Selected tile indicator */}
       {sel&&isPlace&&(
-        <div className="info-msg pop-in" style={{background:T[sel.type].bg,color:T[sel.type].fg,textAlign:'center',fontWeight:'bold',marginBottom:4}}>
+        <div onClick={()=>setInfoTile(sel)} className="info-msg pop-in" style={{background:T[sel.type].bg,color:T[sel.type].fg,textAlign:'center',fontWeight:'bold',marginBottom:4}}>
           {T[sel.type].e} {T[sel.type].n} — touchez une case verte
           {sel.type==='touriste'?` — Fenêtres : ${(sel.windows||[]).join(' ')}`:null}
         </div>
@@ -966,6 +1130,19 @@ function CafeCortado(){
       {isPost&&cp.cortado>0&&(
         <div className="info-msg pop-in" style={{background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.3)',color:'#78350F'}}>
           ☕ Touchez un 📷 Touriste (bordure dorée) pour le pivoter de 90° — {cp.cortado} Cortado{cp.cortado>1?'s':''} disponible{cp.cortado>1?'s':''}
+        </div>
+      )}
+
+      {isDraft&&(
+        <div style={{background:'rgba(120,53,15,.08)',border:'1px solid rgba(120,53,15,.14)',borderRadius:12,padding:8,marginBottom:10}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:7}}>
+            <span style={{fontSize:11,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1}}>Achat rapide</span>
+            <button onClick={()=>setActiveTab('vitrine')} className="btn-secondary">Vitrine</button>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 44px',gap:6}}>
+            {vitrine.map(tile=><VCard key={`quick-${tile.id}`} tile={tile} onClick={()=>pickV(tile)} onInfo={setInfoTile} compact/>)}
+            <button onClick={drawBag} disabled={!bag.length} style={{border:'none',borderRadius:9,background:'#78350F',color:'#FEF3C7',fontSize:18,fontWeight:'bold',opacity:bag.length?1:.45}}>🎲</button>
+          </div>
         </div>
       )}
 
@@ -982,6 +1159,7 @@ function CafeCortado(){
           return<Cell key={`${r}-${c}`} tile={tile} valid={vp} rotatable={rot} preview={pv}
             onClick={()=>{if(vp)place(r,c);else if(rot)cB(r,c);}}
             onEnter={()=>{if(vp&&sel)setPreview({...iScoreDetail(sel,cp.grid,r,c,cp),r,c});}}
+            onInfo={setInfoTile}
           />;
         })).flat()}
       </div>
@@ -1044,7 +1222,7 @@ function CafeCortado(){
           )}
           <div className="vitrine-row">
             {vitrine.map(tile=>(
-              <VCard key={tile.id} tile={tile} disabled={!isDraft} onClick={()=>pickV(tile)}/>
+              <VCard key={tile.id} tile={tile} disabled={!isDraft} onClick={()=>pickV(tile)} onInfo={setInfoTile}/>
             ))}
           </div>
           {isDraft&&(
@@ -1124,6 +1302,8 @@ function CafeCortado(){
     <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#F5EDD8'}}>
       <RulesSheet open={showRules} onClose={()=>setShowRules(false)} leaderboard={leaderboard} onClear={()=>{setLeaderboard([]);saveBestScores([]);}}/>
       <ConfirmQuitSheet open={showQuitConfirm} onCancel={()=>setShowQuitConfirm(false)} onConfirm={quitGame}/>
+      <TileInfoSheet tile={infoTile} onClose={()=>setInfoTile(null)}/>
+      <HabituePickerSheet open={habituePickerPending} onChoose={applyHabitueFavori} onSkip={()=>applyHabitueFavori(null)}/>
 
       {/* Header */}
       <div className="game-header" style={{background:cp.color}}>
