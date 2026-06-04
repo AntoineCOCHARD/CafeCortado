@@ -226,7 +226,8 @@ button { touch-action: manipulation; cursor: pointer; font-family: Georgia, seri
 /* End screen */
 .end-screen {
   background: linear-gradient(160deg, #1C0A00, #78350F 60%, #1C0A00);
-  min-height: 100svh; padding: 20px 14px;
+  min-height: 100svh; height: 100svh; overflow-y: auto;
+  padding: 20px 14px max(22px, var(--safe-bottom));
   color: var(--cream);
 }
 
@@ -273,6 +274,53 @@ button { touch-action: manipulation; cursor: pointer; font-family: Georgia, seri
 @media (min-width: 480px) {
   .cafe-grid { gap: 5px; padding: 8px; }
 }
+
+@media (min-width: 900px) {
+  html, body {
+    background:
+      radial-gradient(circle at top, rgba(245,158,11,.16), transparent 34%),
+      linear-gradient(135deg, #1C0A00 0%, #78350F 48%, #2B1003 100%);
+  }
+
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  #root {
+    width: min(430px, calc(100vw - 48px));
+    height: min(860px, calc(100svh - 48px));
+    max-height: 860px;
+    border-radius: 26px;
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.12);
+    background: var(--bg);
+  }
+
+  .setup-screen,
+  .transition-screen,
+  .end-screen {
+    min-height: 100%;
+    height: 100%;
+  }
+
+  .bottom-sheet-overlay {
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .bottom-sheet {
+    width: min(430px, calc(100vw - 48px));
+    max-height: min(760px, calc(100svh - 48px));
+    border-radius: 18px;
+    padding-bottom: 0;
+  }
+
+  .slide-up { animation: popIn .2s ease-out both; }
+}
 </style>
 </head>
 <body>
@@ -283,6 +331,8 @@ const { useEffect, useState, useRef, useCallback } = React;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const G = 4;
+const GAME_VERSION = 'v2.2';
+const ONLINE_SCORE_ENDPOINT = 'https://script.google.com/macros/s/AKfycbzFovCYAexK1JwJL2BTeQAWWFPJmsEPeZbmzb59Kpez0L6RgubGx07mBXfCeK6vuLwh/exec'; // Collez ici l'URL /exec du Google Apps Script.
 const PC = ['#7B1A1A','#1A3672','#14532D','#5B21B6'];
 const PN = ['Joueur 1','Joueur 2','Joueur 3','Joueur 4'];
 const PE = ['🔴','🔵','🟢','🟣'];
@@ -529,13 +579,83 @@ function eScore(player,publicObjectives,ctx){
 
 const countT=grid=>grid.flat().filter(Boolean).length;
 const LB_KEY='cafe-cortado-v22-best-scores';
+const HISTORY_KEY='cafe-cortado-v22-history';
 const SAVE_KEY='cafe-cortado-v22-current-game';
+const ONLINE_NAME_KEY='cafe-cortado-v22-online-name';
 
 function loadBestScores(){ try{return JSON.parse(localStorage.getItem(LB_KEY)||'[]');}catch(e){return [];} }
 function saveBestScores(e){ try{localStorage.setItem(LB_KEY,JSON.stringify(e));}catch(e){} }
+function scoresToHistory(scores){
+  const groups=new Map();
+  (scores||[]).forEach((score,i)=>{
+    const gameId=score.gameId||score.id||`legacy-${score.date||'date'}-${score.player||'player'}-${i}`;
+    if(!groups.has(gameId)){
+      groups.set(gameId,{
+        gameId,
+        date:score.date||'',
+        time:score.time||'',
+        mode:score.mode||'legacy',
+        playerCount:score.playerCount||(score.mode==='solo'?1:null),
+        version:score.version||GAME_VERSION,
+        publicObjectives:score.publicObjectives||[],
+        scores:[],
+      });
+    }
+    groups.get(gameId).scores.push(score);
+  });
+  return Array.from(groups.values())
+    .map(game=>({...game,scores:[...game.scores].sort((a,b)=>(b.score||0)-(a.score||0))}))
+    .sort((a,b)=>historyTime(b)-historyTime(a));
+}
+function historyTime(game){
+  const idTime=Number(String(game?.gameId||'').split('-')[0]);
+  if(Number.isFinite(idTime)&&idTime>0)return idTime;
+  const text=[game?.date,game?.time].filter(Boolean).join(' ');
+  const parsed=Date.parse(text);
+  return Number.isFinite(parsed)?parsed:0;
+}
+function loadHistory(){
+  try{
+    const history=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]');
+    if(history.length)return history;
+    return scoresToHistory(loadBestScores());
+  }catch(e){return [];}
+}
+function saveHistory(e){ try{localStorage.setItem(HISTORY_KEY,JSON.stringify(e));}catch(e){} }
 function loadSavedGame(){ try{return JSON.parse(localStorage.getItem(SAVE_KEY)||'null');}catch(e){return null;} }
 function saveCurrentGame(d){ try{localStorage.setItem(SAVE_KEY,JSON.stringify(d));}catch(e){} }
 function clearSavedGame(){ try{localStorage.removeItem(SAVE_KEY);}catch(e){} }
+function loadOnlineName(){ try{return localStorage.getItem(ONLINE_NAME_KEY)||'';}catch(e){return '';} }
+function saveOnlineName(name){ try{localStorage.setItem(ONLINE_NAME_KEY,name||'');}catch(e){} }
+
+function loadOnlineScores(){
+  if(!ONLINE_SCORE_ENDPOINT)return Promise.reject(new Error('missing-endpoint'));
+  return new Promise((resolve,reject)=>{
+    const cb=`cafeCortadoScores_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script=document.createElement('script');
+    const sep=ONLINE_SCORE_ENDPOINT.includes('?')?'&':'?';
+    const timeout=setTimeout(()=>{
+      cleanup();
+      reject(new Error('timeout'));
+    },10000);
+    function cleanup(){
+      clearTimeout(timeout);
+      delete window[cb];
+      script.remove();
+    }
+    window[cb]=data=>{
+      cleanup();
+      if(data?.ok)resolve(data.scores||[]);
+      else reject(new Error(data?.error||'online-load-error'));
+    };
+    script.onerror=()=>{
+      cleanup();
+      reject(new Error('script-error'));
+    };
+    script.src=`${ONLINE_SCORE_ENDPOINT}${sep}callback=${encodeURIComponent(cb)}&jsonp=${encodeURIComponent(cb)}&cb=${encodeURIComponent(cb)}&limit=5&_=${Date.now()}`;
+    document.body.appendChild(script);
+  });
+}
 
 // ─── Window Bar ───────────────────────────────────────────────────────────────
 function WBar({d}){
@@ -553,7 +673,7 @@ function tilePowerText(tile){
   const cfg=T[tile.type];
   const lines={
     comptoir:['Point de départ du café.', 'Les Habitués et certains objectifs aiment être proches du comptoir.'],
-    habitue:['Score immédiat + Pouvoir.', '+1 point pour chaque Habitué ou Comptoir adjacent au moment de la pose.', 'Après la pose, choisissez un type de client à favoriser : 2 copies supplémentaires sont mélangées dans le sac et la vitrine est renouvelée.'],
+    habitue:['Score immédiat + Pouvoir.', '+1 point pour chaque Habitué ou Comptoir adjacent au moment de la pose.', 'Après la pose, choisissez un type de client à favoriser : 2 copies supplémentaires sont mélangées dans le sac.'],
     nomade:['Score final.', 'Le plus grand groupe connecté rapporte 1, 3, 6 ou 10 points selon sa taille.'],
     touriste:['Score immédiat.', '+2 points pour chaque fenêtre libre indiquée sur la tuile.'],
     lecteur:['Score final.', '+4 points si aucun Nomade ni Touriste ne lui est adjacent.'],
@@ -662,7 +782,7 @@ function HabituePickerSheet({open,onChoose,onSkip}){
           <div style={{marginBottom:12}}>
             <div style={{fontSize:16,fontWeight:'bold',color:'#78350F',marginBottom:4}}>☕ Pouvoir de l'Habitué</div>
             <div style={{fontSize:12,color:'#92400E',lineHeight:1.4}}>
-              Choisissez un type de client à favoriser — 2 copies supplémentaires sont ajoutées dans le sac et la vitrine est immédiatement renouvelée.
+              Choisissez un type de client à favoriser — 2 copies supplémentaires sont ajoutées dans le sac sans changer la vitrine.
             </div>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
@@ -700,12 +820,28 @@ function HabituePickerSheet({open,onChoose,onSkip}){
 
 // ─── Rules Bottom Sheet ───────────────────────────────────────────────────────
 function RulesSheet({open,onClose,leaderboard,onClear}){
+  const[scoreDetail,setScoreDetail]=useState(null);
+  const[onlineScores,setOnlineScores]=useState([]);
+  const[onlineStatus,setOnlineStatus]=useState(null);
   if(!open)return null;
+  const refreshOnlineScores=()=>{
+    if(!ONLINE_SCORE_ENDPOINT){
+      setOnlineStatus({type:'error',text:'Classement général non configuré.'});
+      return;
+    }
+    setOnlineStatus({type:'pending',text:'Chargement...'});
+    loadOnlineScores()
+      .then(scores=>{
+        setOnlineScores(scores);
+        setOnlineStatus({type:'ok',text:scores.length?`${scores.length} score${scores.length>1?'s':''} chargé${scores.length>1?'s':''}.`:'Aucun score en ligne pour le moment.'});
+      })
+      .catch(()=>setOnlineStatus({type:'error',text:'Impossible de charger le classement général. Redéployez le script Google avec la version JSONP si l’erreur MIME apparaît.'}));
+  };
   const rules=[
     ['But du jeu','Construire le café le plus rentable sur une grille 4×4. Fin de partie quand tous les cafés sont remplis.'],
     ['Tour de jeu','Choisissez une tuile dans la vitrine ou piochez dans le sac, puis placez-la sur une case vide adjacente.'],
-    ['Cortados','Renouveler la vitrine avant de choisir, ou pivoter un Touriste déjà posé. Chaque Cortado restant = +2 pts.'],
-    ['☕ Habitué','+1 pt par Habitué/Comptoir adjacent. Après la pose : choisissez un type favori, +2 copies dans le sac + vitrine renouvelée.'],
+    ['Cortados','Renouveler la vitrine avant de choisir, ou pivoter un Touriste avant de le placer. Chaque Cortado restant = +2 pts.'],
+    ['☕ Habitué','+1 pt par Habitué/Comptoir adjacent. Après la pose : choisissez un type favori, +2 copies sont ajoutées dans le sac.'],
     ['💻 Nomade','Score final : 1→+1, 2→+3, 3→+6, 4+→+10 pour le plus grand groupe.'],
     ['📷 Touriste','+2 pts par fenêtre libre au moment de la pose.'],
     ['📖 Lecteur','+4 pts si calme (sans Nomade ni Touriste adjacent).'],
@@ -716,6 +852,7 @@ function RulesSheet({open,onClose,leaderboard,onClear}){
     ['Départage','Plus de Cortados restants. Si égalité, victoire partagée.'],
   ];
   return(
+    <>
     <div className="bottom-sheet-overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
       <div className="bottom-sheet slide-up">
         <div className="bottom-sheet-handle"/>
@@ -733,17 +870,47 @@ function RulesSheet({open,onClose,leaderboard,onClear}){
             ))}
           </div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,gap:10}}>
+            <strong style={{fontSize:13,color:'#78350F'}}>🌍 Classement général</strong>
+            <button onClick={refreshOnlineScores} className="btn-secondary" style={{background:'rgba(20,83,45,.12)',color:'#14532D',border:'1px solid rgba(20,83,45,.2)'}}>Actualiser</button>
+          </div>
+          {onlineStatus&&onlineStatus.type==='error'&&(
+            <div className="pill" style={{fontSize:12,marginBottom:8,color:'#991B1B'}}>
+              {onlineStatus.text}
+            </div>
+          )}
+          {onlineScores.length>0&&(
+            <div style={{display:'grid',gap:6,marginBottom:18}}>
+              {onlineScores.slice(0,10).map((s,i)=>{
+                const rawDate=String(s.date||'');
+                const cleanDate=rawDate.includes('T')?'':rawDate;
+                const cleanMode=s.mode==='solo'?'Solo':`${s.playerCount||'?'} joueurs`;
+                return(
+                  <div key={`${s.gameId}-${s.player}-${i}`} style={{display:'grid',gridTemplateColumns:'28px 1fr auto auto',gap:8,alignItems:'center',background:i===0?'rgba(245,158,11,.18)':'rgba(120,53,15,.07)',border:'1px solid rgba(120,53,15,.12)',borderRadius:8,padding:'8px 10px'}}>
+                    <strong style={{fontSize:13,color:'#78350F'}}>{i+1}</strong>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:'bold',color:'#78350F'}}>{s.player||'Joueur'}</div>
+                      <div style={{fontSize:10,opacity:.6,color:'#78350F'}}>{cleanMode} · {s.role||'Rôle ?'}{cleanDate?` · ${cleanDate}`:''}</div>
+                    </div>
+                    <strong style={{fontSize:16,color:i===0?'#B45309':'#78350F'}}>{s.score}</strong>
+                    <button onClick={()=>setScoreDetail(s)} className="btn-secondary" style={{fontSize:10,padding:'5px 7px',background:'rgba(120,53,15,.1)',color:'#78350F',border:'1px solid rgba(120,53,15,.18)'}}>Détails</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,gap:10}}>
             <strong style={{fontSize:13,color:'#78350F'}}>🏆 Meilleurs scores</strong>
             {leaderboard.length>0&&<button onClick={onClear} className="btn-secondary" style={{background:'rgba(120,53,15,.12)',color:'#78350F',border:'1px solid rgba(120,53,15,.18)'}}>Effacer</button>}
           </div>
           {leaderboard.length===0
             ?<div className="pill" style={{fontSize:12,opacity:.7,color:'#78350F'}}>Aucun score enregistré.</div>
             :<div style={{display:'grid',gap:6}}>
-              {leaderboard.map((s,i)=>(
-                <div key={`${s.date}-${s.player}-${i}`} style={{display:'grid',gridTemplateColumns:'28px 1fr auto',gap:8,alignItems:'center',background:i===0?'rgba(245,158,11,.18)':'rgba(120,53,15,.07)',border:'1px solid rgba(120,53,15,.12)',borderRadius:8,padding:'8px 10px'}}>
+              {leaderboard.slice(0,10).map((s,i)=>(
+                <div key={`${s.id||s.date}-${s.player}-${i}`} style={{display:'grid',gridTemplateColumns:'28px 1fr auto auto',gap:8,alignItems:'center',background:i===0?'rgba(245,158,11,.18)':'rgba(120,53,15,.07)',border:'1px solid rgba(120,53,15,.12)',borderRadius:8,padding:'8px 10px'}}>
                   <strong style={{fontSize:13,color:'#78350F'}}>{i+1}</strong>
-                  <div><div style={{fontSize:12,fontWeight:'bold',color:'#78350F'}}>{s.emoji} {s.player}</div><div style={{fontSize:10,opacity:.6,color:'#78350F'}}>{s.mode==='solo'?'Solo · ':''}{s.role} · {s.date}</div></div>
+                  <div><div style={{fontSize:12,fontWeight:'bold',color:'#78350F'}}>{s.emoji} {s.player}</div><div style={{fontSize:10,opacity:.6,color:'#78350F'}}>{s.mode==='solo'?'Solo':`${s.playerCount||'?'} joueurs`} · {s.role} · {s.date}</div></div>
                   <strong style={{fontSize:16,color:i===0?'#B45309':'#78350F'}}>{s.score}</strong>
+                  <button onClick={()=>setScoreDetail(s)} className="btn-secondary" style={{fontSize:10,padding:'5px 7px',background:'rgba(120,53,15,.1)',color:'#78350F',border:'1px solid rgba(120,53,15,.18)'}}>Détails</button>
                 </div>
               ))}
             </div>
@@ -751,6 +918,64 @@ function RulesSheet({open,onClose,leaderboard,onClear}){
         </div>
       </div>
     </div>
+    {scoreDetail&&(
+      <div className="bottom-sheet-overlay" onClick={e=>{if(e.target===e.currentTarget)setScoreDetail(null);}} style={{zIndex:260}}>
+        <div className="bottom-sheet slide-up" onClick={e=>e.stopPropagation()}>
+          <div className="bottom-sheet-handle"/>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 14px 10px',flexShrink:0}}>
+            <strong style={{fontSize:16,color:'#78350F'}}>🏆 Détail du score</strong>
+            <button onClick={()=>setScoreDetail(null)} className="btn-secondary" style={{background:'#78350F',color:'#FEF3C7',border:'none'}}>Fermer</button>
+          </div>
+          <div className="bottom-sheet-body">
+            <div className="pill" style={{display:'grid',gridTemplateColumns:'1fr auto',gap:10,alignItems:'center'}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:'bold',color:'#78350F'}}>{scoreDetail.emoji} {scoreDetail.player}</div>
+                <div style={{fontSize:11,color:'#92400E',opacity:.75,marginTop:2}}>{scoreDetail.date}{scoreDetail.time?` · ${scoreDetail.time}`:''} · {scoreDetail.mode==='solo'?'Solo':`${scoreDetail.playerCount||'?'} joueurs`}</div>
+              </div>
+              <strong style={{fontSize:26,color:'#B45309'}}>{scoreDetail.score}<span style={{fontSize:11,marginLeft:2}}>pts</span></strong>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:7,margin:'8px 0'}}>
+              <InfoPill item={{e:'🎭',n:scoreDetail.role||'Rôle',d:scoreDetail.roleDescription||'Rôle non enregistré.'}}/>
+              <InfoPill item={{e:scoreDetail.secretEmoji||'🎯',n:scoreDetail.secret||'Secret',d:scoreDetail.secretDescription||'Objectif secret non enregistré.',pts:scoreDetail.secretPoints||0}} secret/>
+            </div>
+            {scoreDetail.publicObjectives?.length>0&&(
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:10,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>Objectifs publics</div>
+                <div style={{display:'grid',gap:6}}>
+                  {scoreDetail.publicObjectives.map(o=><InfoPill key={o.id||o.n} item={o}/>)}
+                </div>
+              </div>
+            )}
+            {scoreDetail.grid&&(
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:10,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>Plateau final</div>
+                <div style={{display:'grid',gridTemplateColumns:`repeat(${G},1fr)`,gap:4,background:'rgba(120,53,15,.12)',padding:8,borderRadius:10}}>
+                  {scoreDetail.grid.flatMap((row,r)=>row.map((tile,c)=>(
+                    <div key={`${r}-${c}`} style={{aspectRatio:'1',borderRadius:6,background:tile?T[tile.type]?.bg:'rgba(255,255,255,.35)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'clamp(14px,5vw,22px)',position:'relative'}}>
+                      {tile?T[tile.type]?.e:null}
+                      {tile?.type==='touriste'&&(tile.windows||[]).map(d=><WBar key={d} d={d}/>)}
+                    </div>
+                  )))}
+                </div>
+              </div>
+            )}
+            <div style={{fontSize:10,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>Décompte</div>
+            {scoreDetail.sections
+              ?<div style={{display:'grid',gap:6}}>
+                {[['Tuiles',scoreDetail.sections.tuiles],['Rôles',scoreDetail.sections.roles],['Objectifs publics',scoreDetail.sections.publics],['Secret',scoreDetail.sections.secret],['Cortados',scoreDetail.sections.cortados]].map(([title,items])=>items&&items.length?(
+                  <div key={title} className="pill">
+                    <div style={{fontSize:11,fontWeight:'bold',color:'#78350F',marginBottom:3}}>{title}</div>
+                    {items.map((line,i)=><div key={i} style={{fontSize:11,color:'#92400E',lineHeight:1.35}}>· {line}</div>)}
+                  </div>
+                ):null)}
+              </div>
+              :<div className="pill" style={{fontSize:12,color:'#78350F',opacity:.72}}>Ce score date d'une ancienne sauvegarde et n'a pas de détail complet.</div>
+            }
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -799,6 +1024,99 @@ function ObjectivesSheet({open,onClose,publicObjectives,cpSecret}){
   );
 }
 
+function HistorySheet({open,onClose,history,onClear}){
+  const[scoreDetail,setScoreDetail]=useState(null);
+  if(!open)return null;
+  return(
+    <>
+    <div className="bottom-sheet-overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="bottom-sheet slide-up">
+        <div className="bottom-sheet-handle"/>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 14px 10px',flexShrink:0}}>
+          <strong style={{fontSize:16,color:'#78350F'}}>🕰️ Historique local</strong>
+          <button onClick={onClose} className="btn-secondary" style={{background:'#78350F',color:'#FEF3C7',border:'none'}}>Fermer</button>
+        </div>
+        <div className="bottom-sheet-body">
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:8}}>
+            <div style={{fontSize:12,color:'#78350F',opacity:.78}}>Toutes les parties jouées sur cet appareil.</div>
+            {history.length>0&&<button onClick={onClear} className="btn-secondary" style={{background:'rgba(120,53,15,.12)',color:'#78350F',border:'1px solid rgba(120,53,15,.18)'}}>Effacer</button>}
+          </div>
+          {history.length===0
+            ?<div className="pill" style={{fontSize:12,opacity:.7,color:'#78350F'}}>Aucune partie enregistrée.</div>
+            :<div style={{display:'grid',gap:8}}>
+              {[...history].sort((a,b)=>historyTime(b)-historyTime(a)).map(game=>{
+                const winner=game.scores?.[0];
+                return(
+                  <div key={game.gameId} className="pill">
+                    <div style={{display:'flex',justifyContent:'space-between',gap:10,alignItems:'baseline',marginBottom:6}}>
+                      <strong style={{fontSize:13,color:'#78350F'}}>{game.mode==='solo'?'Solo':`${game.playerCount} joueurs`} · {game.date}{game.time?` · ${game.time}`:''}</strong>
+                      {winner&&<strong style={{fontSize:14,color:'#B45309'}}>{winner.score} pts</strong>}
+                    </div>
+                    {winner&&<div style={{fontSize:11,color:'#92400E',opacity:.78,marginBottom:7}}>Meilleur score : {winner.emoji} {winner.player} · {winner.role}</div>}
+                    <div style={{display:'grid',gap:5}}>
+                      {(game.scores||[]).map((s,i)=>(
+                        <div key={s.id||`${game.gameId}-${i}`} style={{display:'grid',gridTemplateColumns:'24px 1fr auto auto',gap:7,alignItems:'center',fontSize:11,background:'rgba(255,255,255,.35)',borderRadius:7,padding:'6px 7px'}}>
+                          <strong style={{color:'#78350F'}}>{i+1}</strong>
+                          <span style={{color:'#78350F'}}>{s.emoji} {s.player}</span>
+                          <strong style={{color:'#78350F'}}>{s.score}</strong>
+                          <button onClick={()=>setScoreDetail(s)} className="btn-secondary" style={{fontSize:10,padding:'4px 7px',background:'rgba(120,53,15,.1)',color:'#78350F',border:'1px solid rgba(120,53,15,.18)'}}>Détails</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+    {scoreDetail&&(
+      <div className="bottom-sheet-overlay" onClick={e=>{if(e.target===e.currentTarget)setScoreDetail(null);}} style={{zIndex:260}}>
+        <div className="bottom-sheet slide-up" onClick={e=>e.stopPropagation()}>
+          <div className="bottom-sheet-handle"/>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 14px 10px',flexShrink:0}}>
+            <strong style={{fontSize:16,color:'#78350F'}}>🏆 Détail du score</strong>
+            <button onClick={()=>setScoreDetail(null)} className="btn-secondary" style={{background:'#78350F',color:'#FEF3C7',border:'none'}}>Fermer</button>
+          </div>
+          <div className="bottom-sheet-body">
+            <div className="pill" style={{display:'grid',gridTemplateColumns:'1fr auto',gap:10,alignItems:'center',marginBottom:8}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:'bold',color:'#78350F'}}>{scoreDetail.emoji} {scoreDetail.player}</div>
+                <div style={{fontSize:11,color:'#92400E',opacity:.75,marginTop:2}}>{scoreDetail.mode==='solo'?'Solo':`${scoreDetail.playerCount||'?'} joueurs`} · {scoreDetail.role}</div>
+              </div>
+              <strong style={{fontSize:26,color:'#B45309'}}>{scoreDetail.score}<span style={{fontSize:11,marginLeft:2}}>pts</span></strong>
+            </div>
+            {scoreDetail.grid&&(
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:10,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>Plateau final</div>
+                <div style={{display:'grid',gridTemplateColumns:`repeat(${G},1fr)`,gap:4,background:'rgba(120,53,15,.12)',padding:8,borderRadius:10}}>
+                  {scoreDetail.grid.flatMap((row,r)=>row.map((tile,c)=>(
+                    <div key={`${r}-${c}`} style={{aspectRatio:'1',borderRadius:6,background:tile?T[tile.type]?.bg:'rgba(255,255,255,.35)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'clamp(14px,5vw,22px)',position:'relative'}}>
+                      {tile?T[tile.type]?.e:null}
+                      {tile?.type==='touriste'&&(tile.windows||[]).map(d=><WBar key={d} d={d}/>)}
+                    </div>
+                  )))}
+                </div>
+              </div>
+            )}
+            <div style={{fontSize:10,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>Décompte</div>
+            <div style={{display:'grid',gap:6}}>
+              {[['Tuiles',scoreDetail.sections?.tuiles],['Rôles',scoreDetail.sections?.roles],['Objectifs publics',scoreDetail.sections?.publics],['Secret',scoreDetail.sections?.secret],['Cortados',scoreDetail.sections?.cortados]].map(([title,items])=>items&&items.length?(
+                <div key={title} className="pill">
+                  <div style={{fontSize:11,fontWeight:'bold',color:'#78350F',marginBottom:3}}>{title}</div>
+                  {items.map((line,i)=><div key={i} style={{fontSize:11,color:'#92400E',lineHeight:1.35}}>· {line}</div>)}
+                </div>
+              ):null)}
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
+  );
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 function CafeCortado(){
   const[phase,setPhase]=useState('SETUP');
@@ -815,7 +1133,9 @@ function CafeCortado(){
   const[publicObjectives,setPublicObjectives]=useState([]);
   const[showObjectives,setShowObjectives]=useState(false);
   const[showRules,setShowRules]=useState(false);
+  const[showHistory,setShowHistory]=useState(false);
   const[leaderboard,setLeaderboard]=useState(loadBestScores);
+  const[history,setHistory]=useState(loadHistory);
   const[savedGame,setSavedGame]=useState(loadSavedGame);
   const[preview,setPreview]=useState(null);
   const[lastScore,setLastScore]=useState(null);
@@ -824,14 +1144,19 @@ function CafeCortado(){
   const[showQuitConfirm,setShowQuitConfirm]=useState(false);
   const[activeTab,setActiveTab]=useState('cafe'); // 'cafe' | 'vitrine' | 'info'
   const[habituePickerPending,setHabituePickerPending]=useState(false);
+  const[showEndGrid,setShowEndGrid]=useState(null); // player id to show grid for
+  const[pendingPick,setPendingPick]=useState(null);
+  const[onlinePayload,setOnlinePayload]=useState(null);
+  const[onlineSubmitStatus,setOnlineSubmitStatus]=useState(null);
+  const[onlinePlayerName,setOnlinePlayerName]=useState(loadOnlineName);
 
   const cp=players[ci];
 
   useEffect(()=>{
     if(phase==='SETUP'||phase==='ENDGAME')return;
-    saveCurrentGame({phase,nP,players,ci,vitrine,bag,sel,vPos,tp,msg:'Partie reprise.',endData,publicObjectives});
+    saveCurrentGame({phase,nP,players,ci,vitrine,bag,sel,vPos,tp,msg:'Partie reprise.',endData,publicObjectives,pendingPick});
     setSavedGame(loadSavedGame());
-  },[phase,nP,players,ci,vitrine,bag,sel,vPos,tp,endData,publicObjectives]);
+  },[phase,nP,players,ci,vitrine,bag,sel,vPos,tp,endData,publicObjectives,pendingPick]);
 
   function startGame(){
     clearSavedGame();setSavedGame(null);
@@ -840,7 +1165,7 @@ function CafeCortado(){
     setPublicObjectives(pub);
     setPlayers(Array.from({length:nP},(_,i)=>({id:i,name:nP===1?'Solo':PN[i],color:PC[i],emoji:PE[i],grid:makeGrid(),score:0,cortado:roles[i].id==='patron'?4:3,role:roles[i],secret:secrets[i],architectUsed:false})));
     setVitrine(all.slice(0,3));setBag(all.slice(3));
-    setCi(0);setSel(null);setVPos([]);setTp('DRAFT');setMsg('');setShowObjectives(false);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);setPhase('PLAYING');setActiveTab('vitrine');
+    setCi(0);setSel(null);setPendingPick(null);setVPos([]);setTp('DRAFT');setMsg('');setShowObjectives(false);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);setPhase('PLAYING');setActiveTab('vitrine');
   }
 
   function resumeGame(){
@@ -848,7 +1173,7 @@ function CafeCortado(){
     const restoredPlayers=(s.players||[]).map(p=>({...p,role:ROLES.find(r=>r.id===p.role?.id)||p.role,secret:SECRET_OBJECTIVES.find(o=>o.id===p.secret?.id)||p.secret}));
     const restoredPublic=(s.publicObjectives||[]).map(o=>PUBLIC_OBJECTIVES.find(po=>po.id===o.id)||o);
     setNP(s.nP||2);setPlayers(restoredPlayers);setCi(s.ci||0);setVitrine(s.vitrine||[]);setBag(s.bag||[]);
-    setSel(s.sel||null);setVPos(s.vPos||[]);setTp(s.tp||'DRAFT');setMsg(s.msg||'Partie reprise.');
+    setSel(s.sel||null);setPendingPick(s.pendingPick||null);setVPos(s.vPos||[]);setTp(s.tp||'DRAFT');setMsg(s.msg||'Partie reprise.');
     setEndData(s.endData||[]);setPublicObjectives(restoredPublic);
     setShowObjectives(false);setPreview(null);setLastScore(null);setPhase(s.phase==='TRANSITION'?'TRANSITION':'PLAYING');
     setActiveTab(s.tp==='DRAFT'?'vitrine':'cafe');
@@ -856,8 +1181,11 @@ function CafeCortado(){
 
   function pickV(tile){
     if(tp!=='DRAFT')return;
+    const sourceIndex=vitrine.findIndex(t=>t.id===tile.id);
     let nv=vitrine.filter(t=>t.id!==tile.id),nb=[...bag];
-    if(nb.length){nv.push(nb[0]);nb=nb.slice(1);}
+    const replacement=nb.length?nb[0]:null;
+    if(replacement){nv.push(replacement);nb=nb.slice(1);}
+    setPendingPick({source:'vitrine',index:sourceIndex,replacement});
     setVitrine(nv);setBag(nb);setSel(tile);setVPos(cp.role?.id==='architecte'&&!cp.architectUsed?getAllEmpty(cp.grid):getVP(cp.grid));setTp('PLACE');setPreview(null);
     setMsg(`${T[tile.type].e} ${T[tile.type].n} — touchez une case verte`);
     setActiveTab('cafe');
@@ -865,7 +1193,7 @@ function CafeCortado(){
 
   function drawBag(){
     if(tp!=='DRAFT'||!bag.length)return;
-    const tile=bag[0];setBag(bag.slice(1));setSel(tile);setVPos(cp.role?.id==='architecte'&&!cp.architectUsed?getAllEmpty(cp.grid):getVP(cp.grid));setTp('PLACE');setPreview(null);
+    const tile=bag[0];setBag(bag.slice(1));setSel(tile);setPendingPick({source:'bag'});setVPos(cp.role?.id==='architecte'&&!cp.architectUsed?getAllEmpty(cp.grid):getVP(cp.grid));setTp('PLACE');setPreview(null);
     setMsg(`${T[tile.type].e} ${T[tile.type].n} piochée — touchez une case verte`);
     setActiveTab('cafe');
   }
@@ -885,17 +1213,21 @@ function CafeCortado(){
     const usedArchitect=cp.role?.id==='architecte'&&!cp.architectUsed&&!getVP(cp.grid).some(([pr,pc])=>pr===r&&pc===c);
     const np=players.map((p,i)=>i===ci?{...p,grid:ng,score:p.score+pts,architectUsed:p.architectUsed||usedArchitect}:p);
     const detail=iScoreDetail(tile,cp.grid,r,c,cp);
-    setSel(null);setVPos([]);setPreview(null);setLastScore(detail.pts>0?detail:null);
+    setSel(null);setPendingPick(null);setVPos([]);setPreview(null);setLastScore(detail.pts>0?detail:null);
     setMsg(detail.pts>0?detail.text:'Tuile posée !');
     haptic(detail.pts>0?'heavy':'light');
     const placed=countT(ng);
     if(np.every(p=>countT(p.grid)===G*G)){setPlayers(np);finishGame(np);return;}
     if(placed===G*G){
       const ni=(ci+1)%np.length;
-      setPlayers(np);setCi(ni);setTp('DRAFT');setSel(null);setVPos([]);setPhase('TRANSITION');return;
+      setPlayers(np);setCi(ni);setTp('DRAFT');setSel(null);setPendingPick(null);setVPos([]);setPhase('TRANSITION');return;
     }
     setPlayers(np);setTp('POST');
     if(tile.type==='habitue') setHabituePickerPending(true);
+    else if(players.length===1){
+      // Solo : pas de bouton "fin de tour", on reset automatiquement
+      setTimeout(()=>{setTp('DRAFT');setSel(null);setPendingPick(null);setVPos([]);setPreview(null);setLastScore(null);},50);
+    }
   }
 
   function applyHabitueFavori(type){
@@ -910,20 +1242,12 @@ function CafeCortado(){
       {id:maxId,type,...(type==='touriste'?{windows:rnd([...WIN_PAT])[0]}:{})},
       {id:maxId+1,type,...(type==='touriste'?{windows:rnd([...WIN_PAT])[0]}:{})},
     ];
-    // Shuffle extras into bag at random positions
-    const newBag=rnd([...bag,...extra]);
-    // Refresh vitrine: take 3 from the new bag
-    const newVitrine=[...vitrine];
-    let remainBag=newBag;
-    // Fill vitrine back to 3 if needed, then add 1 guaranteed refresh with new tiles
-    // Strategy: reshuffle vitrine+bag together then redraw
-    const all=rnd([...newVitrine,...remainBag]);
-    const refreshedVitrine=all.slice(0,3);
-    const refreshedBag=all.slice(3);
-    setVitrine(refreshedVitrine);
-    setBag(refreshedBag);
-    setMsg(`☕ Habitué ! ${T[type].e} ${T[type].n} favorisé — vitrine renouvelée.`);
+    setBag(rnd([...bag,...extra]));
+    setMsg(`☕ Habitué ! ${T[type].e} ${T[type].n} favorisé — 2 tuiles ajoutées au sac.`);
     setHabituePickerPending(false);
+    if(players.length===1){
+      setTimeout(()=>{setTp('DRAFT');setSel(null);setPendingPick(null);setVPos([]);setPreview(null);setLastScore(null);},50);
+    }
   }
 
   function cB(r,c){
@@ -937,12 +1261,12 @@ function CafeCortado(){
 
   function endTurn(){
     if(players.length===1){
-      setTp('DRAFT');setSel(null);setVPos([]);setPreview(null);setLastScore(null);setMsg('');
+      setTp('DRAFT');setSel(null);setPendingPick(null);setVPos([]);setPreview(null);setLastScore(null);setMsg('');
       haptic('light');
       return;
     }
     const ni=(ci+1)%players.length;
-    setCi(ni);setTp('DRAFT');setSel(null);setVPos([]);setPreview(null);setLastScore(null);setMsg('');setPhase('TRANSITION');
+    setCi(ni);setTp('DRAFT');setSel(null);setPendingPick(null);setVPos([]);setPreview(null);setLastScore(null);setMsg('');setPhase('TRANSITION');
     haptic('light');
   }
 
@@ -951,21 +1275,109 @@ function CafeCortado(){
     const ctx={maxTokens:Math.max(...src.map(p=>p.cortado))};
     const data=src.map(p=>{const{sc:ep,lines,sections}=eScore(p,publicObjectives,ctx);return{...p,finalScore:p.score+ep,ep,lines,sections};})
       .sort((a,b)=>b.finalScore-a.finalScore);
-    const previousSoloBest=src.length===1?leaderboard.filter(s=>s.mode==='solo'||s.player==='Solo').reduce((m,s)=>Math.max(m,s.score||0),0):null;
+    const previousSoloBest=src.length===1?leaderboard.filter(s=>s.mode==='solo'||s.player==='Solo'||s.playerCount===1).reduce((m,s)=>Math.max(m,s.score||0),0):null;
     if(src.length===1)setSoloRecordResult({previous:previousSoloBest,score:data[0]?.finalScore||0,beat:(data[0]?.finalScore||0)>previousSoloBest});
     else setSoloRecordResult(null);
-    const stamp=new Date().toLocaleDateString('fr-FR');
-    const next=[...leaderboard,...data.map(p=>({player:p.name,emoji:p.emoji,score:p.finalScore,role:p.role.n,date:stamp,mode:src.length===1?'solo':'multi'}))]
-      .sort((a,b)=>b.score-a.score).slice(0,10);
+    const now=new Date(),stamp=now.toLocaleDateString('fr-FR'),time=now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    const gameId=`${now.getTime()}-${Math.random().toString(36).slice(2,8)}`;
+    const mode=src.length===1?'solo':'multi';
+    const saved=data.map((p,rank)=>({
+      id:`${gameId}-${p.id}`,
+      gameId,
+      player:p.name,
+      playerId:p.id,
+      emoji:p.emoji,
+      color:p.color,
+      rank:rank+1,
+      score:p.finalScore,
+      inGameScore:p.score,
+      endPoints:p.ep,
+      role:p.role?.n,
+      roleEmoji:p.role?.e,
+      roleDescription:p.role?.d,
+      secret:p.secret?.n,
+      secretEmoji:p.secret?.e,
+      secretDescription:p.secret?.d,
+      secretPoints:p.secret?.pts,
+      date:stamp,
+      time,
+      mode,
+      playerCount:src.length,
+      cortados:p.cortado,
+      grid:p.grid,
+      sections:p.sections,
+      lines:p.lines,
+      publicObjectives:publicObjectives.map(o=>({id:o.id,e:o.e,n:o.n,d:o.d,pts:o.pts})),
+      version:GAME_VERSION,
+    }));
+    setOnlinePayload({
+      gameId,
+      createdAt:now.toISOString(),
+      date:stamp,
+      time,
+      mode,
+      playerCount:src.length,
+      version:GAME_VERSION,
+      publicObjectives:publicObjectives.map(o=>({id:o.id,e:o.e,n:o.n,d:o.d,pts:o.pts})),
+      scores:saved,
+    });
+    setOnlineSubmitStatus(null);
+    const next=[...leaderboard,...saved]
+      .sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,10);
     setLeaderboard(next);saveBestScores(next);
+    const historyEntry={gameId,date:stamp,time,mode,playerCount:src.length,version:GAME_VERSION,publicObjectives:publicObjectives.map(o=>({id:o.id,e:o.e,n:o.n,d:o.d,pts:o.pts})),scores:saved};
+    const nextHistory=[historyEntry,...history];
+    setHistory(nextHistory);saveHistory(nextHistory);
     clearSavedGame();setSavedGame(null);
     setEndData(data);setPhase('ENDGAME');
   }
 
+  async function submitOnlineScore(){
+    if(!onlinePayload)return;
+    if(!ONLINE_SCORE_ENDPOINT){
+      setOnlineSubmitStatus({type:'error',text:'Classement général non configuré : ajoutez l’URL Apps Script dans ONLINE_SCORE_ENDPOINT.'});
+      return;
+    }
+    const sentKey='cafe-cortado-v22-online-sent';
+    let sent=[];
+    try{sent=JSON.parse(localStorage.getItem(sentKey)||'[]');}catch(e){sent=[];}
+    if(sent.includes(onlinePayload.gameId)){
+      setOnlineSubmitStatus({type:'ok',text:'Cette partie a déjà été envoyée au classement général.'});
+      return;
+    }
+    setOnlineSubmitStatus({type:'pending',text:'Envoi au classement général...'});
+    try{
+      const publicName=onlinePlayerName.trim();
+      saveOnlineName(publicName);
+      const payload={
+        ...onlinePayload,
+        displayName:publicName,
+        scores:onlinePayload.scores.map(score=>({
+          ...score,
+          originalPlayer:score.originalPlayer||score.player,
+          player:publicName
+            ? (onlinePayload.playerCount>1?`${publicName} · ${score.player}`:publicName)
+            : score.player,
+        })),
+      };
+      await fetch(ONLINE_SCORE_ENDPOINT,{
+        method:'POST',
+        mode:'no-cors',
+        headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify(payload),
+      });
+      const next=[...sent,onlinePayload.gameId].slice(-100);
+      localStorage.setItem(sentKey,JSON.stringify(next));
+      setOnlineSubmitStatus({type:'ok',text:'Score envoyé au classement général.'});
+    }catch(e){
+      setOnlineSubmitStatus({type:'error',text:'Envoi impossible. Vérifiez votre connexion ou l’URL Apps Script.'});
+    }
+  }
+
   function quitGame(){
     setPhase('SETUP');setPlayers([]);setCi(0);setVitrine([]);setBag([]);
-    setSel(null);setVPos([]);setTp('DRAFT');setMsg('');setEndData([]);
-    setPublicObjectives([]);setShowObjectives(false);setShowRules(false);setShowQuitConfirm(false);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);
+    setSel(null);setPendingPick(null);setVPos([]);setTp('DRAFT');setMsg('');setEndData([]);
+    setPublicObjectives([]);setShowObjectives(false);setShowRules(false);setShowHistory(false);setShowQuitConfirm(false);setShowEndGrid(null);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);setOnlinePayload(null);setOnlineSubmitStatus(null);
     clearSavedGame();setSavedGame(null);
   }
 
@@ -973,10 +1385,11 @@ function CafeCortado(){
   if(phase==='SETUP') return(
     <div className="screen">
       <RulesSheet open={showRules} onClose={()=>setShowRules(false)} leaderboard={leaderboard} onClear={()=>{setLeaderboard([]);saveBestScores([]);}}/>
+      <HistorySheet open={showHistory} onClose={()=>setShowHistory(false)} history={history} onClear={()=>{setHistory([]);saveHistory([]);}}/>
       <div className="setup-screen safe-top safe-bottom">
         <div style={{fontSize:64,marginBottom:8}}>☕</div>
         <h1 style={{fontSize:30,fontWeight:'bold',margin:'0 0 4px',letterSpacing:3,textShadow:'0 2px 14px rgba(0,0,0,.7)'}}>CAFÉ CORTADO</h1>
-        <p style={{fontSize:11,opacity:.45,margin:'0 0 32px',letterSpacing:3}}>V2.2 · OBJECTIFS · RÔLES · ARTISTES</p>
+        <p style={{fontSize:11,opacity:.45,margin:'0 0 32px',letterSpacing:3}}>PETITES TUILES, GRANDS DILEMMES</p>
         <div style={{background:'rgba(255,255,255,.1)',borderRadius:16,padding:24,marginBottom:20,width:'100%',maxWidth:360}}>
           <p style={{margin:'0 0 14px',fontSize:14}}>{nP===1?'Mode solo':'Nombre de joueurs'}</p>
           <div style={{display:'flex',gap:12,justifyContent:'center'}}>
@@ -1007,6 +1420,9 @@ function CafeCortado(){
         )}
         <button onClick={()=>setShowRules(true)} style={{background:'none',border:'none',color:'rgba(255,255,255,.45)',marginTop:20,fontSize:13,textDecoration:'underline'}}>
           📜 Voir les règles
+        </button>
+        <button onClick={()=>setShowHistory(true)} style={{background:'none',border:'none',color:'rgba(255,255,255,.45)',marginTop:8,fontSize:13,textDecoration:'underline'}}>
+          🕰️ Historique local
         </button>
       </div>
     </div>
@@ -1047,7 +1463,28 @@ function CafeCortado(){
   if(phase==='ENDGAME') return(
     <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
       <RulesSheet open={showRules} onClose={()=>setShowRules(false)} leaderboard={leaderboard} onClear={()=>{setLeaderboard([]);saveBestScores([]);}}/>
-      <div className="screen">
+      {showEndGrid!==null&&(()=>{
+        const ep=endData.find(p=>p.id===showEndGrid);if(!ep)return null;
+        return(
+          <div className="bottom-sheet-overlay" onClick={()=>setShowEndGrid(null)}>
+            <div className="bottom-sheet slide-up" onClick={e=>e.stopPropagation()}>
+              <div className="bottom-sheet-handle"/>
+              <div style={{padding:'4px 14px 20px'}}>
+                <div style={{fontSize:15,fontWeight:'bold',color:'#78350F',marginBottom:12,textAlign:'center'}}>{ep.emoji} {ep.name} — Plateau final</div>
+                <div style={{display:'grid',gridTemplateColumns:`repeat(${G},1fr)`,gap:4,background:'rgba(120,53,15,.12)',padding:8,borderRadius:12,maxWidth:320,margin:'0 auto'}}>
+                  {Array.from({length:G},(_,r)=>Array.from({length:G},(_,c)=>{
+                    const tile=ep.grid[r][c];
+                    return<div key={`${r}-${c}`} style={{aspectRatio:'1',borderRadius:6,background:tile?T[tile.type].bg:'rgba(255,255,255,.35)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'clamp(14px,5vw,22px)'}}>
+                      {tile?T[tile.type].e:null}
+                    </div>;
+                  })).flat()}
+                </div>
+                <button onClick={()=>setShowEndGrid(null)} style={{width:'100%',marginTop:16,padding:12,background:'rgba(120,53,15,.1)',color:'#78350F',border:'1px solid rgba(120,53,15,.2)',borderRadius:10,fontSize:14,fontFamily:'Georgia,serif',cursor:'pointer'}}>Fermer</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
         <div className="end-screen safe-top safe-bottom">
           <div style={{textAlign:'center',marginBottom:24}}>
             <div style={{fontSize:48}}>🏆</div>
@@ -1069,7 +1506,10 @@ function CafeCortado(){
             <div key={p.id} style={{background:rank===0?'rgba(245,158,11,.18)':'rgba(255,255,255,.06)',borderRadius:14,padding:16,marginBottom:12,border:rank===0?'1.5px solid rgba(245,158,11,.5)':'1.5px solid rgba(255,255,255,.1)'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
                 <div style={{fontSize:16,fontWeight:'bold'}}>{rank===0?'🥇':rank===1?'🥈':'🥉'} {p.emoji} {p.name}</div>
-                <div style={{fontSize:28,fontWeight:'bold',color:rank===0?'#F59E0B':'#FEF3C7'}}>{p.finalScore}<span style={{fontSize:12,fontWeight:'normal',marginLeft:2}}>pts</span></div>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <button onClick={()=>setShowEndGrid(p.id)} style={{background:'rgba(255,255,255,.12)',border:'1px solid rgba(255,255,255,.2)',borderRadius:8,color:'#FEF3C7',fontSize:11,padding:'4px 9px',fontFamily:'Georgia,serif',cursor:'pointer'}}>🏪 Plateau</button>
+                  <div style={{fontSize:28,fontWeight:'bold',color:rank===0?'#F59E0B':'#FEF3C7'}}>{p.finalScore}<span style={{fontSize:12,fontWeight:'normal',marginLeft:2}}>pts</span></div>
+                </div>
               </div>
               <div style={{fontSize:12,opacity:.78,lineHeight:1.65}}>
                 <div>{p.role.e} {p.role.n}</div>
@@ -1096,13 +1536,32 @@ function CafeCortado(){
               </div>
             ))}
           </div>
-          <div style={{display:'flex',gap:10,marginTop:8}}>
+          {onlinePayload&&(
+            <div style={{background:'rgba(255,255,255,.07)',border:'1px solid rgba(255,255,255,.12)',borderRadius:12,padding:14,margin:'14px 0'}}>
+              <div style={{fontSize:11,letterSpacing:1.2,textTransform:'uppercase',opacity:.65,marginBottom:8}}>Classement général</div>
+              <label style={{display:'block',fontSize:11,opacity:.72,marginBottom:5}}>Nom affiché</label>
+              <input value={onlinePlayerName} onChange={e=>setOnlinePlayerName(e.target.value)} placeholder={onlinePayload.playerCount>1?'Nom du groupe ou joueur':'Votre nom'} maxLength={32} style={{
+                width:'100%',padding:'11px 12px',borderRadius:10,border:'1px solid rgba(255,255,255,.18)',
+                background:'rgba(255,255,255,.12)',color:'#FEF3C7',fontFamily:'Georgia,serif',fontSize:14,
+                marginBottom:10,outline:'none',
+              }}/>
+              <button onClick={submitOnlineScore} disabled={onlineSubmitStatus?.type==='pending'} className="btn-primary" style={{background:'#14532D',color:'#FFF',opacity:onlineSubmitStatus?.type==='pending'?0.7:1}}>
+                🌍 Envoyer cette partie
+              </button>
+              {onlineSubmitStatus&&(
+                <div style={{marginTop:8,fontSize:12,lineHeight:1.35,color:onlineSubmitStatus.type==='error'?'#FCA5A5':onlineSubmitStatus.type==='ok'?'#BBF7D0':'rgba(255,255,255,.78)'}}>
+                  {onlineSubmitStatus.text}
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{position:'sticky',bottom:0,display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:8,padding:'10px 0 2px'}}>
+            <button onClick={()=>setPhase('SETUP')} className="btn-primary" style={{gridColumn:'1 / -1',background:'#F59E0B',color:'#1C0A00'}}>☕ Nouvelle partie</button>
             <button onClick={()=>setShowRules(true)} className="btn-primary" style={{background:'rgba(255,255,255,.14)',color:'#FEF3C7',border:'1px solid rgba(255,255,255,.2)'}}>📜 Règles</button>
-            <button onClick={()=>setPhase('SETUP')} className="btn-primary" style={{background:'#F59E0B',color:'#1C0A00'}}>☕ Nouvelle partie</button>
+            <button onClick={quitGame} className="btn-primary" style={{background:'rgba(153,27,27,.92)',color:'#FFF',border:'1px solid rgba(255,255,255,.18)'}}>✕ Quitter</button>
           </div>
         </div>
       </div>
-    </div>
   );
 
   // ── PLAYING ────────────────────────────────────────────────────────────────
@@ -1120,16 +1579,42 @@ function CafeCortado(){
 
       {/* Selected tile indicator */}
       {sel&&isPlace&&(
-        <div onClick={()=>setInfoTile(sel)} className="info-msg pop-in" style={{background:T[sel.type].bg,color:T[sel.type].fg,textAlign:'center',fontWeight:'bold',marginBottom:4}}>
-          {T[sel.type].e} {T[sel.type].n} — touchez une case verte
-          {sel.type==='touriste'?` — Fenêtres : ${(sel.windows||[]).join(' ')}`:null}
+        <div className="info-msg pop-in" style={{background:T[sel.type].bg,color:T[sel.type].fg,marginBottom:4,display:'flex',alignItems:'center',gap:8}}>
+          <div onClick={()=>setInfoTile(sel)} style={{flex:1,fontWeight:'bold',cursor:'pointer'}}>
+            {T[sel.type].e} {T[sel.type].n} — touchez une case verte
+            {sel.type==='touriste'?` — Fenêtres : ${(sel.windows||[]).join(' ')}`:null}
+          </div>
+          {pendingPick?.source==='vitrine'&&(
+            <button onClick={()=>{
+              const replacement=pendingPick.replacement;
+              const withoutReplacement=replacement?vitrine.filter(t=>t.id!==replacement.id):[...vitrine];
+              const index=Math.max(0,Math.min(pendingPick.index??withoutReplacement.length,withoutReplacement.length));
+              setVitrine([...withoutReplacement.slice(0,index),sel,...withoutReplacement.slice(index)].slice(0,3));
+              if(replacement)setBag(b=>[replacement,...b]);
+              setPendingPick(null);
+              setSel(null);setVPos([]);setPreview(null);setLastScore(null);setMsg('');setTp('DRAFT');setActiveTab('cafe');
+            }} style={{
+              background:'rgba(0,0,0,.2)',border:'none',borderRadius:7,color:'inherit',
+              fontSize:11,padding:'4px 8px',fontFamily:'Georgia,serif',cursor:'pointer',flexShrink:0,
+            }}>✕ Annuler</button>
+          )}
         </div>
       )}
 
-      {/* Cortado POST hint */}
-      {isPost&&cp.cortado>0&&(
-        <div className="info-msg pop-in" style={{background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.3)',color:'#78350F'}}>
-          ☕ Touchez un 📷 Touriste (bordure dorée) pour le pivoter de 90° — {cp.cortado} Cortado{cp.cortado>1?'s':''} disponible{cp.cortado>1?'s':''}
+      {/* Rotation touriste avant placement */}
+      {sel&&isPlace&&sel.type==='touriste'&&cp.cortado>0&&(
+        <div className="info-msg pop-in" style={{background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.3)',color:'#78350F',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+          <span style={{fontSize:12}}>🔄 Orientez le Touriste avant de le placer — coûte 1 Cortado</span>
+          <button onClick={()=>{
+            const rot={N:'E',E:'S',S:'W',W:'N'};
+            setSel(s=>({...s,windows:(s.windows||[]).map(d=>rot[d])}));
+            setPlayers(ps=>ps.map((p,i)=>i===ci?{...p,cortado:p.cortado-1}:p));
+            setMsg('☕ Cortado utilisé : Touriste pivoté avant placement.');
+            haptic('medium');
+          }} style={{
+            background:'#F59E0B',border:'none',borderRadius:8,color:'#1C0A00',
+            fontSize:13,fontWeight:'bold',padding:'6px 12px',fontFamily:'Georgia,serif',cursor:'pointer',
+          }}>↻ Pivoter</button>
         </div>
       )}
 
@@ -1154,10 +1639,10 @@ function CafeCortado(){
         {Array.from({length:G},(_,r)=>Array.from({length:G},(_,c)=>{
           const tile=cp.grid[r][c];
           const vp=isPlace&&vPos.some(([pr,pc])=>pr===r&&pc===c);
-          const rot=isPost&&cp.cortado>0&&tile?.type==='touriste';
+          const rot=false;
           const pv=vp&&preview?.r===r&&preview?.c===c?preview:null;
           return<Cell key={`${r}-${c}`} tile={tile} valid={vp} rotatable={rot} preview={pv}
-            onClick={()=>{if(vp)place(r,c);else if(rot)cB(r,c);}}
+            onClick={()=>{if(vp)place(r,c);}}
             onEnter={()=>{if(vp&&sel)setPreview({...iScoreDetail(sel,cp.grid,r,c,cp),r,c});}}
             onInfo={setInfoTile}
           />;
@@ -1188,6 +1673,14 @@ function CafeCortado(){
 
   const tabVitrine = ()=>(
     <div style={{padding:'8px 14px 12px'}}>
+      {/* Role pill */}
+      <div style={{display:'flex',alignItems:'center',gap:8,background:'rgba(120,53,15,.08)',border:'1px solid rgba(120,53,15,.15)',borderRadius:10,padding:'8px 11px',marginBottom:10}}>
+        <span style={{fontSize:20}}>{cp.role.e}</span>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:12,fontWeight:'bold',color:'#78350F'}}>{cp.role.n}</div>
+          <div style={{fontSize:10,color:'#92400E',lineHeight:1.35,opacity:.85}}>{cp.role.d}</div>
+        </div>
+      </div>
       {msg&&(
         <div className={`${lastScore?'score-pulse':'pop-in'} info-msg`} style={{background:'rgba(22,163,74,.1)',borderLeft:'3px solid #22C55E',color:'#14532D',marginBottom:8}}>
           {msg}
@@ -1199,11 +1692,6 @@ function CafeCortado(){
           <div className="info-msg" style={{background:'rgba(120,53,15,.08)',color:'#78350F',textAlign:'center',fontSize:14}}>
             ✅ Tuile posée — terminez votre tour
           </div>
-          {cp.cortado>0&&(
-            <div className="info-msg pop-in" style={{background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.3)',color:'#78350F',marginTop:8}}>
-              ☕ Vous pouvez encore pivoter un 📷 Touriste (onglet Café) avec vos {cp.cortado} Cortado{cp.cortado>1?'s':''}
-            </div>
-          )}
         </div>
       ):(
         <>
@@ -1323,7 +1811,8 @@ function CafeCortado(){
         </div>
       </div>
 
-      {/* Player strip */}
+      {/* Player strip — masqué en solo */}
+      {players.length>1&&(
       <div style={{flexShrink:0,display:'flex',justifyContent:'space-around',padding:'7px 16px',background:'rgba(120,53,15,.08)',borderBottom:'1px solid rgba(120,53,15,.12)'}}>
         {players.map(p=>(
           <div key={p.id} className="player-dot" style={{opacity:p.id===ci?1:.4,background:p.id===ci?'rgba(120,53,15,.1)':'transparent'}}>
@@ -1332,14 +1821,15 @@ function CafeCortado(){
           </div>
         ))}
       </div>
+      )}
 
       {/* Tab content */}
       <div className="game-body">
         {activeTab==='cafe'?tabCafe():activeTab==='vitrine'?tabVitrine():tabInfo()}
       </div>
 
-      {/* End turn bar (only in POST) */}
-      {isPost&&(
+      {/* End turn bar (only in POST, and only multiplayer) */}
+      {isPost&&players.length>1&&(
         <div className="end-turn-bar">
           <button onClick={endTurn} className="btn-primary" style={{background:cp.color,color:'white'}}>
             Fin de mon tour →
