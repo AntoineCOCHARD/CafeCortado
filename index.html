@@ -399,7 +399,6 @@ const SECRET_OBJECTIVES = [
   {id:'place_calme',e:'📖',n:'Place Calme',d:'Avoir 2 Lecteurs calmes en bordure.',pts:8,ok:s=>s.edgeCalmReaders>=2},
   {id:'facade',e:'🪟',n:'Façade Lumineuse',d:'Avoir 5 fenêtres libres en bordure.',pts:7,ok:s=>s.edgeFreeWindows>=5},
   {id:'duo_cortado',e:'☕',n:'Duo Cortado',d:'Finir avec 2 Cortados exactement.',pts:6,ok:s=>s.tokens===2},
-  {id:'full_house',e:'🎭',n:'Salle Pleine',d:'Remplir toutes les cases du café.',pts:5,ok:s=>s.filled===G*G},
   {id:'nomade_isole',e:'💻',n:'Soliste Digital',d:'Avoir un Nomade sans Nomade adjacent.',pts:6,ok:s=>s.isolatedNomades>=1},
   {id:'critique_heureux',e:'📖',n:'Critique Heureux',d:'Avoir un Lecteur calme adjacent à un Artiste.',pts:7,ok:s=>s.calmReaderNearArtist},
   {id:'guide_local',e:'📷',n:'Guide Local',d:'Avoir un Touriste adjacent au comptoir.',pts:6,ok:s=>s.touristNearCounter},
