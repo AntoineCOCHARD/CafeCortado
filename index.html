@@ -652,7 +652,7 @@ function loadOnlineScores(){
       cleanup();
       reject(new Error('script-error'));
     };
-    script.src=`${ONLINE_SCORE_ENDPOINT}${sep}callback=${encodeURIComponent(cb)}&jsonp=${encodeURIComponent(cb)}&cb=${encodeURIComponent(cb)}&limit=5&_=${Date.now()}`;
+    script.src=`${ONLINE_SCORE_ENDPOINT}${sep}callback=${encodeURIComponent(cb)}&jsonp=${encodeURIComponent(cb)}&cb=${encodeURIComponent(cb)}&limit=10&_=${Date.now()}`;
     document.body.appendChild(script);
   });
 }
