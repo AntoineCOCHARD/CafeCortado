@@ -371,6 +371,8 @@ const PUBLIC_OBJECTIVES = [
   {id:'carte_postale',e:'📷',n:'Carte Postale',d:'Chaque Touriste en bord de café rapporte +1 point.',score:s=>[s.edgeTourists,`📷 Carte Postale ${s.edgeTourists}×1 → +${s.edgeTourists}pts`]},
   {id:'comptoir_vivant',e:'🏪',n:'Comptoir Vivant',d:'Chaque voisin du comptoir rapporte +2 points.',score:s=>[s.counterNeighbors*2,`🏪 Comptoir Vivant ${s.counterNeighbors}×2 → +${s.counterNeighbors*2}pts`]},
   {id:'dernier_cafe',e:'☕',n:'Dernier Café',d:'Finir avec au moins 2 Cortados rapporte +4 points.',score:s=>s.tokens>=2?[4,`☕ Dernier Café → +4pts`]:[0,null]},
+  {id:'clientele_fidele',e:'☕',n:'Clientèle Fidèle',d:'Chaque groupe d’Habitués de 2+ rapporte +2 points.',score:s=>[s.habitueGroups.filter(x=>x>=2).length*2,`☕ Clientèle Fidèle → +${s.habitueGroups.filter(x=>x>=2).length*2}pts`]},
+  {id:'cafe_econome',e:'☕',n:'Café Économe',d:'Chaque Cortado restant rapporte +1 point supplémentaire.',score:s=>[s.tokens,`☕ Café Économe ${s.tokens}×1 → +${s.tokens}pts`]},
 ];
 
 const SECRET_OBJECTIVES = [
@@ -403,6 +405,14 @@ const SECRET_OBJECTIVES = [
   {id:'critique_heureux',e:'📖',n:'Critique Heureux',d:'Avoir un Lecteur calme adjacent à un Artiste.',pts:7,ok:s=>s.calmReaderNearArtist},
   {id:'guide_local',e:'📷',n:'Guide Local',d:'Avoir un Touriste adjacent au comptoir.',pts:6,ok:s=>s.touristNearCounter},
   {id:'cafe_signature',e:'🎨',n:'Café Signature',d:'Marquer au moins 12 points avec Artistes et objectifs.',pts:10,ok:s=>s.artistPoints>=12},
+  {id:'open_space',e:'💻',n:'Open Space',d:'Avoir 4 Nomades en ligne ou colonne.',pts:8,ok:s=>s.nomadeLine4},
+  {id:'carre_habitues',e:'☕',n:'Carré d’Habitués',d:'Former un carré 2×2 avec au moins 3 Habitués.',pts:9,ok:s=>s.habitueSquare3},
+  {id:'cafe_equilibre',e:'🎭',n:'Café Équilibré',d:'Avoir exactement 3 types de clients avec au moins 3 tuiles chacun.',pts:7,ok:s=>s.balancedCafe},
+  {id:'dernier_cortado',e:'☕',n:'Dernier Cortado',d:'Finir avec exactement 1 Cortado.',pts:6,ok:s=>s.tokens===1},
+  {id:'atelier_calme',e:'🎨',n:'Atelier Calme',d:'Avoir un Artiste adjacent à au moins 2 Lecteurs calmes.',pts:8,ok:s=>s.artistNearTwoCalmReaders},
+  {id:'guide_quartier',e:'📷',n:'Guide de Quartier',d:'Avoir un Touriste adjacent à 3 types différents.',pts:7,ok:s=>s.touristNearThreeTypes},
+  {id:'nomade_central',e:'💻',n:'Nomade Central',d:'Avoir au moins 2 Nomades hors bordure.',pts:8,ok:s=>s.centerNomades>=2},
+  {id:'sans_dominance',e:'🎭',n:'Sans Dominance',d:'Aucun type de client n’apparaît plus de 4 fois.',pts:9,ok:s=>s.noDominantType},
 ];
 
 const DIRS = { N:[-1,0],S:[1,0],E:[0,1],W:[0,-1] };
@@ -491,7 +501,7 @@ function getStats(grid,tokens){
   const habitueGroups=countGroup(grid,'habitue');
   let calmReaders=0,noisyReaders=0,freeWindows=0,edgeFreeWindows=0,edgeTourists=0,edgeCalmReaders=0;
   let habituesNearCounter=0,counterNeighbors=0,linkedHabitues=0,isolatedNomades=0,socialArtists=0,bestArtistKinds=0,artistPoints=0;
-  let adjacentArtists=false,calmReaderNearArtist=false,touristNearCounter=false,filled=countT(grid);
+  let adjacentArtists=false,calmReaderNearArtist=false,touristNearCounter=false,artistNearTwoCalmReaders=false,touristNearThreeTypes=false,centerNomades=0,filled=countT(grid);
   for(let r=0;r<G;r++) for(let c=0;c<G;c++){
     const tile=grid[r][c]; if(!tile)continue;
     if(counts[tile.type]!==undefined)counts[tile.type]++;
@@ -501,6 +511,7 @@ function getStats(grid,tokens){
       const fw=freeWindowsFor(tile,grid,r,c); freeWindows+=fw;
       if(edge){edgeTourists++; edgeFreeWindows+=fw;}
       if(nearCounter)touristNearCounter=true;
+      if(new Set(adj.filter(t=>t.type!=='comptoir').map(t=>t.type)).size>=3)touristNearThreeTypes=true;
     }
     if(tile.type==='lecteur'){
       const calm=isCalmReader(grid,r,c);
@@ -511,20 +522,36 @@ function getStats(grid,tokens){
       if(nearCounter)habituesNearCounter++;
       if(adj.some(t=>t.type==='habitue'))linkedHabitues++;
     }
-    if(tile.type==='nomade'&&!adj.some(t=>t.type==='nomade'))isolatedNomades++;
+    if(tile.type==='nomade'){
+      if(!adj.some(t=>t.type==='nomade'))isolatedNomades++;
+      if(!edge)centerNomades++;
+    }
     if(tile.type==='artiste'){
       const kinds=new Set(adj.filter(t=>t.type!=='comptoir').map(t=>t.type));
       bestArtistKinds=Math.max(bestArtistKinds,kinds.size);
       if(adj.length>=3)socialArtists++;
       if(adj.some(t=>t.type==='artiste'))adjacentArtists=true;
+      if(D4.map(d=>{const[dr,dc]=DIRS[d],nr=r+dr,nc=c+dc;return nr>=0&&nr<G&&nc>=0&&nc<G&&grid[nr][nc]?.type==='lecteur'&&isCalmReader(grid,nr,nc);}).filter(Boolean).length>=2)artistNearTwoCalmReaders=true;
       artistPoints+=kinds.size===4?10:kinds.size*2;
     }
     if(tile.type!=='comptoir'&&nearCounter)counterNeighbors++;
   }
+  const nomadeLine4=Array.from({length:G},(_,i)=>i).some(i=>
+    Array.from({length:G},(_,c)=>grid[i][c]?.type==='nomade').every(Boolean)||
+    Array.from({length:G},(_,r)=>grid[r][i]?.type==='nomade').every(Boolean)
+  );
+  let habitueSquare3=false;
+  for(let r=0;r<G-1;r++) for(let c=0;c<G-1;c++){
+    const n=[grid[r][c],grid[r+1][c],grid[r][c+1],grid[r+1][c+1]].filter(t=>t?.type==='habitue').length;
+    if(n>=3)habitueSquare3=true;
+  }
+  const typeCounts=Object.values(counts);
+  const balancedCafe=typeCounts.filter(x=>x>=3).length===3;
+  const noDominantType=typeCounts.every(x=>x<=4);
   return{
     counts,tokens,filled,nomadeGroups,habitueGroups,calmReaders,noisyReaders,freeWindows,edgeFreeWindows,edgeTourists,edgeCalmReaders,
     habituesNearCounter,counterNeighbors,linkedHabitues,isolatedNomades,socialArtists,bestArtistKinds,artistPoints,
-    adjacentArtists,calmReaderNearArtist,touristNearCounter,
+    adjacentArtists,calmReaderNearArtist,touristNearCounter,nomadeLine4,habitueSquare3,balancedCafe,artistNearTwoCalmReaders,touristNearThreeTypes,centerNomades,noDominantType,
     maxNomadeGroup:Math.max(0,...nomadeGroups),maxHabitueGroup:Math.max(0,...habitueGroups),
     typeKinds:Object.values(counts).filter(x=>x>0).length,
   };
