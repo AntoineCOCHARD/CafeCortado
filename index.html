@@ -462,11 +462,26 @@ const WIN_PAT = [
   ['N','S','W'],['E','S','W'],['N','E','S','W'],['N','S'],
 ];
 
-const rnd = a => {
+function seedFromString(text){
+  let h=2166136261;
+  for(let i=0;i<text.length;i++){h^=text.charCodeAt(i);h=Math.imul(h,16777619);}
+  return h>>>0;
+}
+function seededRandom(seed){
+  let t=seed>>>0;
+  return function(){
+    t+=0x6D2B79F5;
+    let r=Math.imul(t^t>>>15,1|t);
+    r^=r+Math.imul(r^r>>>7,61|r);
+    return ((r^r>>>14)>>>0)/4294967296;
+  };
+}
+const rndWith = (a,rand=Math.random) => {
   const b=[...a];
-  for(let i=b.length-1;i>0;i--){const j=0|Math.random()*(i+1);[b[i],b[j]]=[b[j],b[i]];}
+  for(let i=b.length-1;i>0;i--){const j=0|rand()*(i+1);[b[i],b[j]]=[b[j],b[i]];}
   return b;
 };
+const rnd = a => rndWith(a,Math.random);
 
 // Haptic feedback helper
 const haptic = (style='light') => {
@@ -474,8 +489,8 @@ const haptic = (style='light') => {
   try { window.webkit?.messageHandlers?.haptic?.postMessage?.(style); } catch(e) {}
 };
 
-function makeBag(){
-  let id=0; const t=[]; const p=rnd([...WIN_PAT]);
+function makeBag(rand=Math.random){
+  let id=0; const t=[]; const p=rndWith([...WIN_PAT],rand);
   for(let i=0;i<16;i++){
     t.push({id:id++,type:'habitue'});
     t.push({id:id++,type:'nomade'});
@@ -483,7 +498,7 @@ function makeBag(){
     t.push({id:id++,type:'lecteur'});
     if(i<12)t.push({id:id++,type:'artiste'});
   }
-  return rnd(t);
+  return rndWith(t,rand);
 }
 
 function makeGrid(){
@@ -646,17 +661,30 @@ const LB_KEY='cafe-cortado-v22-best-scores';
 const HISTORY_KEY='cafe-cortado-v22-history';
 const SAVE_KEY='cafe-cortado-v22-current-game';
 const ONLINE_NAME_KEY='cafe-cortado-v22-online-name';
+const DAILY_CHALLENGE_KEY='cafe-cortado-v22-daily-challenge';
 const SCOREBOARD_LIMIT_PER_MODE = 10;
-const ONLINE_SCORE_FETCH_LIMIT = 10;
+const ONLINE_SCORE_FETCH_LIMIT = 100;
+
+function normalizeChallengeDate(value){
+  if(!value)return '';
+  const text=String(value);
+  const iso=text.match(/\d{4}-\d{2}-\d{2}/);
+  if(iso)return iso[0];
+  const fr=text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if(fr)return `${fr[3]}-${fr[2]}-${fr[1]}`;
+  return text;
+}
 
 function loadBestScores(){ try{return JSON.parse(localStorage.getItem(LB_KEY)||'[]');}catch(e){return [];} }
 function saveBestScores(e){ try{localStorage.setItem(LB_KEY,JSON.stringify(e));}catch(e){} }
 function trimBestScores(entries){
   const sorted=[...(entries||[])].sort((a,b)=>(b.score||0)-(a.score||0));
-  const solo=sorted.filter(s=>s.mode==='solo'||s.player==='Solo'||s.playerCount===1).slice(0,SCOREBOARD_LIMIT_PER_MODE);
-  const multi=sorted.filter(s=>s.mode==='multi'||Number(s.playerCount)>1).slice(0,SCOREBOARD_LIMIT_PER_MODE);
+  const standard=sorted.filter(s=>(s.category||'standard')==='standard');
+  const daily=sorted.filter(s=>s.category==='daily'&&normalizeChallengeDate(s.challengeDate)===dailyChallengeDate()).slice(0,SCOREBOARD_LIMIT_PER_MODE);
+  const solo=standard.filter(s=>s.mode==='solo'||s.player==='Solo'||s.playerCount===1).slice(0,SCOREBOARD_LIMIT_PER_MODE);
+  const multi=standard.filter(s=>s.mode==='multi'||Number(s.playerCount)>1).slice(0,SCOREBOARD_LIMIT_PER_MODE);
   const seen=new Set();
-  return [...solo,...multi].filter(s=>{
+  return [...solo,...multi,...daily].filter(s=>{
     const key=s.id||`${s.gameId||''}-${s.player||''}-${s.score||0}-${s.date||''}`;
     if(seen.has(key))return false;
     seen.add(key);
@@ -705,8 +733,22 @@ function saveCurrentGame(d){ try{localStorage.setItem(SAVE_KEY,JSON.stringify(d)
 function clearSavedGame(){ try{localStorage.removeItem(SAVE_KEY);}catch(e){} }
 function loadOnlineName(){ try{return localStorage.getItem(ONLINE_NAME_KEY)||'';}catch(e){return '';} }
 function saveOnlineName(name){ try{localStorage.setItem(ONLINE_NAME_KEY,name||'');}catch(e){} }
+function dailyChallengeDate(){
+  const d=new Date();
+  const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function loadDailyChallengeState(){ try{return JSON.parse(localStorage.getItem(DAILY_CHALLENGE_KEY)||'null');}catch(e){return null;} }
+function saveDailyChallengeState(state){ try{localStorage.setItem(DAILY_CHALLENGE_KEY,JSON.stringify(state));}catch(e){} }
+function hasCompletedDailyChallenge(){ const s=loadDailyChallengeState();return s?.date===dailyChallengeDate()&&s?.status==='completed'; }
+function dailySentId(payload){ return payload?.category==='daily'?`${payload.gameId}-daily`:payload?.gameId; }
+function isOnlinePayloadSent(payload){
+  if(!payload)return false;
+  try{return JSON.parse(localStorage.getItem('cafe-cortado-v22-online-sent')||'[]').includes(dailySentId(payload));}
+  catch(e){return false;}
+}
 
-function loadOnlineScores(mode){
+function loadOnlineScores(mode,category='standard',date=null){
   if(!ONLINE_SCORE_ENDPOINT)return Promise.reject(new Error('missing-endpoint'));
   return new Promise((resolve,reject)=>{
     const cb=`cafeCortadoScores_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -731,7 +773,9 @@ function loadOnlineScores(mode){
       reject(new Error('script-error'));
     };
     const modeParam=mode?`&mode=${encodeURIComponent(mode)}`:'';
-    script.src=`${ONLINE_SCORE_ENDPOINT}${sep}callback=${encodeURIComponent(cb)}&jsonp=${encodeURIComponent(cb)}&cb=${encodeURIComponent(cb)}&limit=${ONLINE_SCORE_FETCH_LIMIT}${modeParam}&_=${Date.now()}`;
+    const categoryParam=category?`&category=${encodeURIComponent(category)}`:'';
+    const dateParam=date?`&challengeDate=${encodeURIComponent(date)}`:'';
+    script.src=`${ONLINE_SCORE_ENDPOINT}${sep}callback=${encodeURIComponent(cb)}&jsonp=${encodeURIComponent(cb)}&cb=${encodeURIComponent(cb)}&limit=${ONLINE_SCORE_FETCH_LIMIT}${modeParam}${categoryParam}${dateParam}&_=${Date.now()}`;
     document.body.appendChild(script);
   });
 }
@@ -1102,7 +1146,7 @@ function LeaderboardSheet({open,onClose,leaderboard,onClear}){
               {filtered.map((s,i)=>{
                 const rawDate=String(s.date||'');
                 const cleanDate=rawDate.includes('T')?'':rawDate;
-                const cleanMode=s.mode==='solo'||s.playerCount===1?'Solo':`${s.playerCount||'?'} joueurs`;
+                const cleanMode=s.category==='daily'||s.mode==='daily'?'Défi quotidien':s.mode==='solo'||s.playerCount===1?'Solo':`${s.playerCount||'?'} joueurs`;
                 return(
                   <div key={`${scope}-${s.id||s.gameId||s.date}-${s.player}-${i}`} style={{display:'grid',gridTemplateColumns:'28px 1fr auto',gap:8,alignItems:'center',background:i===0?'rgba(245,158,11,.18)':'rgba(120,53,15,.07)',border:'1px solid rgba(120,53,15,.12)',borderRadius:8,padding:'8px 10px'}}>
                     <strong style={{fontSize:13,color:'#78350F'}}>{i+1}</strong>
@@ -1125,30 +1169,45 @@ function LeaderboardSheet({open,onClose,leaderboard,onClear}){
 
 function LeaderboardSheetByMode({open,onClose,leaderboard,onClear}){
   const[scope,setScope]=useState('local');
+  const[category,setCategory]=useState('standard');
   const[mode,setMode]=useState('solo');
   const[scoreDetail,setScoreDetail]=useState(null);
-  const[onlineScores,setOnlineScores]=useState({solo:[],multi:[]});
-  const[onlineStatus,setOnlineStatus]=useState({solo:{type:'idle',text:''},multi:{type:'idle',text:''}});
+  const[onlineScores,setOnlineScores]=useState({solo:[],multi:[],daily:[]});
+  const[onlineStatus,setOnlineStatus]=useState({solo:{type:'idle',text:''},multi:{type:'idle',text:''},daily:{type:'idle',text:''}});
   if(!open)return null;
-  const currentOnlineStatus=onlineStatus[mode]||{type:'idle',text:''};
-  const refreshOnlineScores=(nextMode=mode)=>{
+  const dailyDone=hasCompletedDailyChallenge();
+  const dailyDate=dailyChallengeDate();
+  const activeKey=category==='daily'?'daily':mode;
+  const currentOnlineStatus=onlineStatus[activeKey]||{type:'idle',text:''};
+  const refreshOnlineScores=(nextKey=activeKey)=>{
+    const nextCategory=nextKey==='daily'?'daily':'standard';
+    const nextMode=nextKey==='daily'?'daily':nextKey;
     if(!ONLINE_SCORE_ENDPOINT){
-      setOnlineStatus(s=>({...s,[nextMode]:{type:'error',text:'Classement général non configuré.'}}));
+      setOnlineStatus(s=>({...s,[nextKey]:{type:'error',text:'Classement général non configuré.'}}));
       return;
     }
-    setOnlineStatus(s=>({...s,[nextMode]:{type:'pending',text:`Chargement du classement ${nextMode==='solo'?'solo':'multijoueur'}...`}}));
-    loadOnlineScores(nextMode)
+    setOnlineStatus(s=>({...s,[nextKey]:{type:'pending',text:nextKey==='daily'?'Chargement du défi quotidien...':`Chargement du classement ${nextMode==='solo'?'solo':'multijoueur'}...`}}));
+    const scoreRequest=nextCategory==='daily'
+      ? loadOnlineScores(nextMode,nextCategory,dailyDate).then(scores=>scores?.length?scores:loadOnlineScores(nextMode,nextCategory,null))
+      : loadOnlineScores(nextMode,nextCategory,null);
+    scoreRequest
       .then(scores=>{
-        setOnlineScores(s=>({...s,[nextMode]:scores||[]}));
-        setOnlineStatus(s=>({...s,[nextMode]:{type:'ok',text:scores?.length?'':'Aucun score général pour le moment.'}}));
+        setOnlineScores(s=>({...s,[nextKey]:scores||[]}));
+        setOnlineStatus(s=>({...s,[nextKey]:{type:'ok',text:scores?.length?'':'Aucun score général pour le moment.'}}));
       })
-      .catch(()=>setOnlineStatus(s=>({...s,[nextMode]:{type:'error',text:'Impossible de charger le classement général.'}})));
+      .catch(()=>setOnlineStatus(s=>({...s,[nextKey]:{type:'error',text:'Impossible de charger le classement général.'}})));
   };
-  const source=scope==='local'?leaderboard:(onlineScores[mode]||[]);
-  const filtered=(source||[])
-    .filter(s=>mode==='solo'?(s.mode==='solo'||s.playerCount===1||s.player==='Solo'):(s.mode==='multi'||Number(s.playerCount)>1))
-    .sort((a,b)=>(b.score||0)-(a.score||0))
-    .slice(0,SCOREBOARD_LIMIT_PER_MODE);
+  const source=scope==='local'?leaderboard:(onlineScores[activeKey]||[]);
+  const filteredBase=(source||[])
+    .filter(s=>category==='daily'?((s.category==='daily'||s.mode==='daily')&&(!s.challengeDate||normalizeChallengeDate(s.challengeDate)===dailyDate)):(s.category||'standard')==='standard'&&(mode==='solo'?(s.mode==='solo'||s.playerCount===1||s.player==='Solo'):(s.mode==='multi'||Number(s.playerCount)>1)))
+    .sort((a,b)=>(b.score||0)-(a.score||0));
+  const filtered=(category==='daily'
+    ? filteredBase.filter((s,i,arr)=>{
+        const key=`${String(s.player||'Joueur').trim().toLowerCase()}-${Number(s.score||0)}`;
+        return arr.findIndex(other=>`${String(other.player||'Joueur').trim().toLowerCase()}-${Number(other.score||0)}`===key)===i;
+      })
+    : filteredBase
+  ).slice(0,SCOREBOARD_LIMIT_PER_MODE);
   const showLoading=scope==='general'&&currentOnlineStatus.type==='pending';
   const showEmpty=!showLoading&&filtered.length===0;
   return(
@@ -1163,18 +1222,18 @@ function LeaderboardSheetByMode({open,onClose,leaderboard,onClear}){
         <div className="bottom-sheet-body">
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:8}}>
             {[['local','Local'],['general','Général']].map(([id,label])=>(
-              <button key={id} onClick={()=>{setScope(id);if(id==='general'&&currentOnlineStatus.type==='idle')refreshOnlineScores(mode);}} style={{border:'1px solid rgba(120,53,15,.16)',borderRadius:8,padding:'9px 6px',background:scope===id?'#78350F':'rgba(120,53,15,.07)',color:scope===id?'#FEF3C7':'#78350F',fontSize:12,fontWeight:'bold'}}>{label}</button>
+              <button key={id} onClick={()=>{setScope(id);if(id==='general'&&currentOnlineStatus.type==='idle')refreshOnlineScores(activeKey);}} style={{border:'1px solid rgba(120,53,15,.16)',borderRadius:8,padding:'9px 6px',background:scope===id?'#78350F':'rgba(120,53,15,.07)',color:scope===id?'#FEF3C7':'#78350F',fontSize:12,fontWeight:'bold'}}>{label}</button>
             ))}
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:12}}>
-            {[['solo','Solo'],['multi','Multijoueur']].map(([id,label])=>(
-              <button key={id} onClick={()=>{setMode(id);if(scope==='general'&&(onlineStatus[id]?.type||'idle')==='idle')refreshOnlineScores(id);}} style={{border:'1px solid rgba(120,53,15,.16)',borderRadius:8,padding:'8px 6px',background:mode===id?'rgba(245,158,11,.22)':'rgba(120,53,15,.06)',color:'#78350F',fontSize:12,fontWeight:'bold'}}>{label}</button>
+          <div style={{display:'grid',gridTemplateColumns:dailyDone?'1fr 1fr 1fr':'1fr 1fr',gap:6,marginBottom:12}}>
+            {[['solo','Solo'],['multi','Multijoueur'],...(dailyDone?[['daily','Défi quotidien']]:[])].map(([id,label])=>(
+              <button key={id} onClick={()=>{const nextCategory=id==='daily'?'daily':'standard';setCategory(nextCategory);if(id!=='daily')setMode(id);if(scope==='general'&&(onlineStatus[id]?.type||'idle')==='idle')refreshOnlineScores(id);}} style={{border:'1px solid rgba(120,53,15,.16)',borderRadius:8,padding:'8px 6px',background:(id==='daily'?category==='daily':category==='standard'&&mode===id)?'rgba(245,158,11,.22)':'rgba(120,53,15,.06)',color:'#78350F',fontSize:12,fontWeight:'bold'}}>{label}</button>
             ))}
           </div>
           {scope==='general'&&(
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:10}}>
               <div style={{fontSize:12,color:'#78350F',opacity:.78}}>Scores envoyés en ligne</div>
-              <button onClick={()=>refreshOnlineScores(mode)} disabled={showLoading} className="btn-secondary" style={{background:'rgba(20,83,45,.12)',color:'#14532D',border:'1px solid rgba(20,83,45,.2)',opacity:showLoading?0.7:1}}>Actualiser</button>
+              <button onClick={()=>refreshOnlineScores(activeKey)} disabled={showLoading} className="btn-secondary" style={{background:'rgba(20,83,45,.12)',color:'#14532D',border:'1px solid rgba(20,83,45,.2)',opacity:showLoading?0.7:1}}>Actualiser</button>
             </div>
           )}
           {showLoading&&<div className="pill" style={{display:'flex',alignItems:'center',gap:10,fontSize:12,marginBottom:8}}><span className="spinner"/> {currentOnlineStatus.text}</div>}
@@ -1185,7 +1244,7 @@ function LeaderboardSheetByMode({open,onClose,leaderboard,onClear}){
               {filtered.map((s,i)=>{
                 const rawDate=String(s.date||'');
                 const cleanDate=rawDate.includes('T')?'':rawDate;
-                const cleanMode=s.mode==='solo'||s.playerCount===1?'Solo':`${s.playerCount||'?'} joueurs`;
+                const cleanMode=s.category==='daily'||s.mode==='daily'?'Défi quotidien':s.mode==='solo'||s.playerCount===1?'Solo':`${s.playerCount||'?'} joueurs`;
                 return(
                   <div key={`${scope}-${s.id||s.gameId||s.date}-${s.player}-${i}`} style={{display:'grid',gridTemplateColumns:'28px 1fr auto auto',gap:8,alignItems:'center',background:i===0?'rgba(245,158,11,.18)':'rgba(120,53,15,.07)',border:'1px solid rgba(120,53,15,.12)',borderRadius:8,padding:'8px 10px'}}>
                     <strong style={{fontSize:13,color:'#78350F'}}>{i+1}</strong>
@@ -1423,6 +1482,9 @@ function CafeCortado(){
   const[leaderboard,setLeaderboard]=useState(loadBestScores);
   const[history,setHistory]=useState(loadHistory);
   const[savedGame,setSavedGame]=useState(loadSavedGame);
+  const[dailyChallengeState,setDailyChallengeState]=useState(loadDailyChallengeState);
+  const[gameCategory,setGameCategory]=useState('standard');
+  const[challengeDate,setChallengeDate]=useState(null);
   const[preview,setPreview]=useState(null);
   const[lastScore,setLastScore]=useState(null);
   const[infoTile,setInfoTile]=useState(null);
@@ -1441,18 +1503,69 @@ function CafeCortado(){
 
   useEffect(()=>{
     if(phase==='SETUP'||phase==='ENDGAME')return;
-    saveCurrentGame({phase,nP,players,ci,vitrine,bag,sel,vPos,tp,msg:'Partie reprise.',endData,publicObjectives,pendingPick});
+    saveCurrentGame({phase,nP,players,ci,vitrine,bag,sel,vPos,tp,msg:'Partie reprise.',endData,publicObjectives,pendingPick,gameCategory,challengeDate});
     setSavedGame(loadSavedGame());
-  },[phase,nP,players,ci,vitrine,bag,sel,vPos,tp,endData,publicObjectives,pendingPick]);
+  },[phase,nP,players,ci,vitrine,bag,sel,vPos,tp,endData,publicObjectives,pendingPick,gameCategory,challengeDate]);
 
   function startGame(){
     clearSavedGame();setSavedGame(null);
+    setGameCategory('standard');setChallengeDate(null);
     const all=makeBag();
     const roles=rnd(ROLES).slice(0,nP),secrets=rnd(SECRET_OBJECTIVES).slice(0,nP),pub=rnd(PUBLIC_OBJECTIVES).slice(0,3);
     setPublicObjectives(pub);
     setPlayers(Array.from({length:nP},(_,i)=>({id:i,name:nP===1?'Solo':PN[i],color:PC[i],emoji:PE[i],grid:makeGrid(),score:0,cortado:roles[i].id==='patron'?4:3,role:roles[i],secret:secrets[i],architectUsed:false})));
     setVitrine(all.slice(0,3));setBag(all.slice(3));
     setCi(0);setSel(null);setPendingPick(null);setVPos([]);setTp('DRAFT');setMsg('');setShowObjectives(false);setShowLeaderboard(false);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);setOnlinePlayerNames({});setShowBen67(false);setPhase('PLAYING');setActiveTab('vitrine');
+  }
+
+  function startDailyChallenge(){
+    const date=dailyChallengeDate();
+    const state=loadDailyChallengeState();
+    if(state?.date===date)return;
+    clearSavedGame();setSavedGame(null);
+    const rand=seededRandom(seedFromString(`cafe-cortado-daily-${date}`));
+    const all=makeBag(rand);
+    const roles=rndWith(ROLES,rand).slice(0,1),secrets=rndWith(SECRET_OBJECTIVES,rand).slice(0,1),pub=rndWith(PUBLIC_OBJECTIVES,rand).slice(0,3);
+    const nextState={date,status:'started',startedAt:new Date().toISOString()};
+    saveDailyChallengeState(nextState);setDailyChallengeState(nextState);
+    setGameCategory('daily');setChallengeDate(date);setNP(1);setPublicObjectives(pub);
+    setPlayers([{id:0,name:'Solo',color:PC[0],emoji:PE[0],grid:makeGrid(),score:0,cortado:roles[0].id==='patron'?4:3,role:roles[0],secret:secrets[0],architectUsed:false}]);
+    setVitrine(all.slice(0,3));setBag(all.slice(3));
+    setCi(0);setSel(null);setPendingPick(null);setVPos([]);setTp('DRAFT');setMsg('Défi quotidien lancé. Une seule tentative pour aujourd’hui.');setShowObjectives(false);setShowLeaderboard(false);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);setOnlinePlayerNames({});setShowBen67(false);setPhase('PLAYING');setActiveTab('vitrine');
+  }
+
+  function openDailyChallengeResult(){
+    const state=loadDailyChallengeState();
+    if(state?.date!==dailyChallengeDate()||state.status!=='completed')return;
+    let restoredEndData=state.endData;
+    let restoredPayload=state.onlinePayload;
+    if(!restoredEndData||!restoredPayload){
+      const game=(loadHistory()||[]).find(g=>{
+        const scoreList=g.scores||[];
+        const isDaily=g.category==='daily'||g.mode==='daily'||scoreList.some(s=>s.category==='daily'||s.mode==='daily');
+        return isDaily&&(!g.challengeDate||g.challengeDate===state.date);
+      });
+      if(game?.scores?.length){
+        restoredEndData=game.scores.map(s=>({
+          ...s,
+          id:s.playerId??s.id,
+          name:s.player,
+          finalScore:s.score,
+          ep:s.endPoints||0,
+          role:{e:s.roleEmoji||'🎭',n:s.role||'Rôle'},
+          secret:{e:s.secretEmoji||'🎯',n:s.secret||'Secret',pts:s.secretPoints||0},
+        }));
+        restoredPayload={...game,category:'daily',challengeDate:state.date,mode:'daily',scores:game.scores};
+      }
+    }
+    if(!restoredEndData||!restoredPayload)return;
+    setDailyChallengeState(state);
+    setGameCategory('daily');setChallengeDate(state.date);setNP(1);
+    setEndData(restoredEndData);setPublicObjectives(restoredPayload.publicObjectives||[]);
+    setOnlinePayload(restoredPayload);
+    setOnlinePlayerNames(state.onlinePlayerNames||Object.fromEntries((restoredPayload.scores||[]).map(s=>[s.playerId,String(s.player||'')])));
+    setOnlineSubmitStatus(isOnlinePayloadSent(restoredPayload)||state.onlineSent?{type:'ok',text:'Score déjà envoyé au classement général.'}:null);
+    setShowEndGrid(null);setSoloRecordResult(null);setShowBen67(false);setPhase('ENDGAME');
   }
 
   function resumeGame(){
@@ -1462,6 +1575,7 @@ function CafeCortado(){
     setNP(s.nP||2);setPlayers(restoredPlayers);setCi(s.ci||0);setVitrine(s.vitrine||[]);setBag(s.bag||[]);
     setSel(s.sel||null);setPendingPick(s.pendingPick||null);setVPos(s.vPos||[]);setTp(s.tp||'DRAFT');setMsg(s.msg||'Partie reprise.');
     setEndData(s.endData||[]);setPublicObjectives(restoredPublic);
+    setGameCategory(s.gameCategory||'standard');setChallengeDate(s.challengeDate||null);
     setShowObjectives(false);setPreview(null);setLastScore(null);setPhase(s.phase==='TRANSITION'?'TRANSITION':'PLAYING');
     setActiveTab(s.tp==='DRAFT'?'vitrine':'cafe');
   }
@@ -1573,12 +1687,13 @@ function CafeCortado(){
     const ctx={maxTokens:Math.max(...src.map(p=>p.cortado))};
     const data=src.map(p=>{const{sc:ep,lines,sections}=eScore(p,publicObjectives,ctx);return{...p,finalScore:p.score+ep,ep,lines,sections};})
       .sort((a,b)=>b.finalScore-a.finalScore);
-    const previousSoloBest=src.length===1?leaderboard.filter(s=>s.mode==='solo'||s.player==='Solo'||s.playerCount===1).reduce((m,s)=>Math.max(m,s.score||0),0):null;
-    if(src.length===1)setSoloRecordResult({previous:previousSoloBest,score:data[0]?.finalScore||0,beat:(data[0]?.finalScore||0)>previousSoloBest});
+    const previousSoloBest=src.length===1&&gameCategory!=='daily'?leaderboard.filter(s=>(s.category||'standard')==='standard'&&(s.mode==='solo'||s.player==='Solo'||s.playerCount===1)).reduce((m,s)=>Math.max(m,s.score||0),0):null;
+    if(src.length===1&&gameCategory!=='daily')setSoloRecordResult({previous:previousSoloBest,score:data[0]?.finalScore||0,beat:(data[0]?.finalScore||0)>previousSoloBest});
     else setSoloRecordResult(null);
     const now=new Date(),stamp=now.toLocaleDateString('fr-FR'),time=now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
     const gameId=`${now.getTime()}-${Math.random().toString(36).slice(2,8)}`;
-    const mode=src.length===1?'solo':'multi';
+    const category=gameCategory==='daily'?'daily':'standard';
+    const mode=category==='daily'?'daily':src.length===1?'solo':'multi';
     const saved=data.map((p,rank)=>({
       id:`${gameId}-${p.id}`,
       gameId,
@@ -1600,6 +1715,8 @@ function CafeCortado(){
       date:stamp,
       time,
       mode,
+      category,
+      challengeDate:category==='daily'?challengeDate:null,
       playerCount:src.length,
       cortados:p.cortado,
       grid:p.grid,
@@ -1615,6 +1732,8 @@ function CafeCortado(){
       date:stamp,
       time,
       mode,
+      category,
+      challengeDate:category==='daily'?challengeDate:null,
       playerCount:src.length,
       version:GAME_VERSION,
       publicObjectives:publicObjectives.map(o=>({id:o.id,e:o.e,n:o.n,d:o.d,pts:o.pts})),
@@ -1623,7 +1742,24 @@ function CafeCortado(){
     setOnlineSubmitStatus(null);
     const next=trimBestScores([...leaderboard,...saved]);
     setLeaderboard(next);saveBestScores(next);
-    const historyEntry={gameId,date:stamp,time,mode,playerCount:src.length,version:GAME_VERSION,publicObjectives:publicObjectives.map(o=>({id:o.id,e:o.e,n:o.n,d:o.d,pts:o.pts})),scores:saved};
+    if(category==='daily'){
+      const dailyPayload={
+        gameId,
+        createdAt:now.toISOString(),
+        date:stamp,
+        time,
+        mode,
+        category,
+        challengeDate:challengeDate||dailyChallengeDate(),
+        playerCount:src.length,
+        version:GAME_VERSION,
+        publicObjectives:publicObjectives.map(o=>({id:o.id,e:o.e,n:o.n,d:o.d,pts:o.pts})),
+        scores:saved,
+      };
+      const nextDaily={date:challengeDate||dailyChallengeDate(),status:'completed',completedAt:now.toISOString(),score:saved[0]?.score||0,endData:data,onlinePayload:dailyPayload,onlinePlayerNames:Object.fromEntries(saved.map(s=>[s.playerId,String(s.player||'')])),onlineSent:isOnlinePayloadSent(dailyPayload)};
+      saveDailyChallengeState(nextDaily);setDailyChallengeState(nextDaily);
+    }
+    const historyEntry={gameId,date:stamp,time,mode,category,challengeDate:category==='daily'?challengeDate:null,playerCount:src.length,version:GAME_VERSION,publicObjectives:publicObjectives.map(o=>({id:o.id,e:o.e,n:o.n,d:o.d,pts:o.pts})),scores:saved};
     const nextHistory=[historyEntry,...history];
     setHistory(nextHistory);saveHistory(nextHistory);
     clearSavedGame();setSavedGame(null);
@@ -1639,7 +1775,8 @@ function CafeCortado(){
     const sentKey='cafe-cortado-v22-online-sent';
     let sent=[];
     try{sent=JSON.parse(localStorage.getItem(sentKey)||'[]');}catch(e){sent=[];}
-    if(sent.includes(onlinePayload.gameId)){
+    const sentId=dailySentId(onlinePayload);
+    if(sent.includes(sentId)){
       setOnlineSubmitStatus({type:'ok',text:'Cette partie a déjà été envoyée au classement général.'});
       return;
     }
@@ -1669,8 +1806,15 @@ function CafeCortado(){
         headers:{'Content-Type':'text/plain;charset=utf-8'},
         body:JSON.stringify(payload),
       });
-      const next=[...sent,onlinePayload.gameId].slice(-100);
+      const next=[...sent,sentId].slice(-100);
       localStorage.setItem(sentKey,JSON.stringify(next));
+      if(onlinePayload.category==='daily'){
+        const state=loadDailyChallengeState();
+        if(state?.date===onlinePayload.challengeDate){
+          const nextDaily={...state,onlineSent:true,onlineSentAt:new Date().toISOString(),onlinePlayerNames};
+          saveDailyChallengeState(nextDaily);setDailyChallengeState(nextDaily);
+        }
+      }
       setOnlineSubmitStatus({type:'ok',text:'Score envoyé au classement général.'});
     }catch(e){
       setOnlineSubmitStatus({type:'error',text:'Envoi impossible. Vérifiez votre connexion ou l’URL Apps Script.'});
@@ -1680,7 +1824,7 @@ function CafeCortado(){
   function quitGame(){
     setPhase('SETUP');setPlayers([]);setCi(0);setVitrine([]);setBag([]);
     setSel(null);setPendingPick(null);setVPos([]);setTp('DRAFT');setMsg('');setEndData([]);
-    setPublicObjectives([]);setShowObjectives(false);setShowRules(false);setShowLeaderboard(false);setShowHistory(false);setShowQuitConfirm(false);setShowEndGrid(null);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);setOnlinePayload(null);setOnlineSubmitStatus(null);setOnlinePlayerNames({});setShowBen67(false);
+    setPublicObjectives([]);setShowObjectives(false);setShowRules(false);setShowLeaderboard(false);setShowHistory(false);setShowQuitConfirm(false);setShowEndGrid(null);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);setOnlinePayload(null);setOnlineSubmitStatus(null);setOnlinePlayerNames({});setShowBen67(false);setGameCategory('standard');setChallengeDate(null);setDailyChallengeState(loadDailyChallengeState());
     clearSavedGame();setSavedGame(null);
   }
 
@@ -1696,6 +1840,11 @@ function CafeCortado(){
         <p style={{fontSize:11,opacity:.45,margin:'0 0 32px',letterSpacing:3}}>PETITES TUILES, GRANDS DILEMMES</p>
         <button onClick={()=>setShowLeaderboard(true)} title="Classement" style={{background:'rgba(255,255,255,.12)',border:'1px solid rgba(255,255,255,.2)',borderRadius:12,color:'#FEF3C7',margin:'0 0 18px',fontSize:13,padding:'10px 14px',fontWeight:'bold'}}>
           🏆 Classement
+        </button>
+        <button onClick={dailyChallengeState?.date===dailyChallengeDate()&&dailyChallengeState.status==='completed'?openDailyChallengeResult:startDailyChallenge} disabled={dailyChallengeState?.date===dailyChallengeDate()&&dailyChallengeState.status!=='completed'} className="btn-primary" style={{background:dailyChallengeState?.date===dailyChallengeDate()?'rgba(255,255,255,.12)':'#22C55E',color:dailyChallengeState?.date===dailyChallengeDate()?'rgba(254,243,199,.75)':'#052E16',border:dailyChallengeState?.date===dailyChallengeDate()?'1px solid rgba(255,255,255,.18)':'none',maxWidth:300,marginBottom:18,boxShadow:dailyChallengeState?.date===dailyChallengeDate()?'none':'0 4px 16px rgba(34,197,94,.32)'}}>
+          {dailyChallengeState?.date===dailyChallengeDate()
+            ? (dailyChallengeState.status==='completed'?'Défi du jour terminé':'Défi du jour lancé')
+            : 'Défi quotidien'}
         </button>
         <div style={{background:'rgba(255,255,255,.1)',borderRadius:16,padding:24,marginBottom:20,width:'100%',maxWidth:360}}>
           <p style={{margin:'0 0 14px',fontSize:14}}>{nP===1?'Mode solo':'Nombre de joueurs'}</p>
@@ -1813,6 +1962,12 @@ function CafeCortado(){
             <h1 style={{fontSize:26,margin:'4px 0'}}>Fin de Partie</h1>
             <p style={{opacity:.5,fontSize:11,margin:0,letterSpacing:2}}>RÉSULTATS & DÉCOMPTE FINAL</p>
           </div>
+          {gameCategory==='daily'&&(
+            <div style={{background:'rgba(34,197,94,.16)',border:'1.5px solid rgba(34,197,94,.42)',borderRadius:12,padding:14,marginBottom:14,textAlign:'center'}}>
+              <div style={{fontSize:15,fontWeight:'bold'}}>Défi quotidien terminé</div>
+              <div style={{fontSize:12,opacity:.78,marginTop:4}}>Le classement du défi du jour est maintenant disponible.</div>
+            </div>
+          )}
           {soloRecordResult&&(
             <div style={{background:soloRecordResult.beat?'rgba(245,158,11,.2)':'rgba(255,255,255,.08)',border:soloRecordResult.beat?'1.5px solid rgba(245,158,11,.55)':'1.5px solid rgba(255,255,255,.13)',borderRadius:12,padding:14,marginBottom:14,textAlign:'center'}}>
               <div style={{fontSize:15,fontWeight:'bold'}}>
