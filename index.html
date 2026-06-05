@@ -8,6 +8,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Café Cortado">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="manifest.json" />
 <title>Café Cortado</title>
 <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -113,12 +116,49 @@ html, body {
 @keyframes tileDrop { from { opacity:.2; transform:translateY(-8px) scale(.96); } to { opacity:1; transform:translateY(0) scale(1); } }
 @keyframes slideUp { from { opacity:0; transform:translateY(100%); } to { opacity:1; transform:translateY(0); } }
 @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes ben67Pop {
+  0% { opacity:0; transform:scale(.55) rotate(-8deg); }
+  18% { opacity:1; transform:scale(1.18) rotate(3deg); }
+  100% { opacity:1; transform:scale(1) rotate(0); }
+}
+@keyframes confettiFall {
+  0% { opacity:0; transform:translateY(-18vh) rotate(0deg); }
+  10% { opacity:1; }
+  100% { opacity:0; transform:translateY(82vh) rotate(720deg); }
+}
 
 .pop-in { animation: popIn .22s ease-out both; }
 .score-pulse { animation: scorePulse .4s ease-out both; }
 .tile-drop { animation: tileDrop .18s ease-out both; }
 .slide-up { animation: slideUp .28s ease-out both; }
 .fade-in { animation: fadeIn .2s ease-out both; }
+.spinner {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 3px solid rgba(120,53,15,.18);
+  border-top-color: #78350F;
+  animation: spin .8s linear infinite;
+}
+.ben67-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(28,10,0,.82);
+  pointer-events: none; overflow: hidden;
+}
+.ben67-number {
+  color: #F59E0B;
+  font-size: clamp(112px, 34vw, 260px);
+  font-weight: 900;
+  line-height: .8;
+  text-shadow: 0 10px 0 #78350F, 0 0 38px rgba(245,158,11,.65);
+  animation: ben67Pop .75s cubic-bezier(.2,1.35,.25,1) both;
+}
+.confetti-piece {
+  position: absolute;
+  top: 0;
+  width: 10px; height: 18px; border-radius: 2px;
+  animation: confettiFall 2.2s ease-in forwards;
+}
 
 /* Modal bottom sheet */
 .bottom-sheet-overlay {
@@ -369,7 +409,6 @@ const PUBLIC_OBJECTIVES = [
   {id:'collectif',e:'🎨',n:'Collectif Créatif',d:'Chaque Artiste avec 3 voisins ou plus rapporte +2 points.',score:s=>[s.socialArtists*2,`🎨 Collectif Créatif ${s.socialArtists}×2 → +${s.socialArtists*2}pts`]},
   {id:'nomades_duo',e:'💻',n:'Duo Connecté',d:'Chaque groupe de Nomades de taille 2+ rapporte +2 points.',score:s=>[s.nomadeGroups.filter(x=>x>=2).length*2,`💻 Duo Connecté → +${s.nomadeGroups.filter(x=>x>=2).length*2}pts`]},
   {id:'carte_postale',e:'📷',n:'Carte Postale',d:'Chaque Touriste en bord de café rapporte +1 point.',score:s=>[s.edgeTourists,`📷 Carte Postale ${s.edgeTourists}×1 → +${s.edgeTourists}pts`]},
-  {id:'comptoir_vivant',e:'🏪',n:'Comptoir Vivant',d:'Chaque voisin du comptoir rapporte +2 points.',score:s=>[s.counterNeighbors*2,`🏪 Comptoir Vivant ${s.counterNeighbors}×2 → +${s.counterNeighbors*2}pts`]},
   {id:'dernier_cafe',e:'☕',n:'Dernier Café',d:'Finir avec au moins 2 Cortados rapporte +4 points.',score:s=>s.tokens>=2?[4,`☕ Dernier Café → +4pts`]:[0,null]},
   {id:'clientele_fidele',e:'☕',n:'Clientèle Fidèle',d:'Chaque groupe d’Habitués de 2+ rapporte +2 points.',score:s=>[s.habitueGroups.filter(x=>x>=2).length*2,`☕ Clientèle Fidèle → +${s.habitueGroups.filter(x=>x>=2).length*2}pts`]},
   {id:'cafe_econome',e:'☕',n:'Café Économe',d:'Chaque Cortado restant rapporte +1 point supplémentaire.',score:s=>[s.tokens,`☕ Café Économe ${s.tokens}×1 → +${s.tokens}pts`]},
@@ -390,7 +429,6 @@ const SECRET_OBJECTIVES = [
   {id:'photo_bord',e:'📷',n:'Photo de Rue',d:'Avoir 3 Touristes en bordure.',pts:6,ok:s=>s.edgeTourists>=3},
   {id:'reseau_dense',e:'💻',n:'Réseau Dense',d:'Avoir deux groupes de Nomades de 2+.',pts:8,ok:s=>s.nomadeGroups.filter(x=>x>=2).length>=2},
   {id:'cafe_vide',e:'🪟',n:'Vue Dégagée',d:'Avoir 8 fenêtres libres ou plus.',pts:6,ok:s=>s.freeWindows>=8},
-  {id:'proche_comptoir',e:'🏪',n:'Près du Comptoir',d:'Avoir 3 clients adjacents au comptoir.',pts:8,ok:s=>s.counterNeighbors>=3},
   {id:'habitudes',e:'☕',n:'Habitudes Solides',d:'Avoir 4 Habitués adjacents à un Habitué.',pts:7,ok:s=>s.linkedHabitues>=4},
   {id:'tour_du_monde',e:'📷',n:'Tour du Monde',d:'Avoir 5 Touristes.',pts:9,ok:s=>s.counts.touriste>=5},
   {id:'bibliotheque',e:'📖',n:'Bibliothèque',d:'Avoir 4 Lecteurs.',pts:7,ok:s=>s.counts.lecteur>=4},
@@ -608,9 +646,23 @@ const LB_KEY='cafe-cortado-v22-best-scores';
 const HISTORY_KEY='cafe-cortado-v22-history';
 const SAVE_KEY='cafe-cortado-v22-current-game';
 const ONLINE_NAME_KEY='cafe-cortado-v22-online-name';
+const SCOREBOARD_LIMIT_PER_MODE = 10;
+const ONLINE_SCORE_FETCH_LIMIT = 10;
 
 function loadBestScores(){ try{return JSON.parse(localStorage.getItem(LB_KEY)||'[]');}catch(e){return [];} }
 function saveBestScores(e){ try{localStorage.setItem(LB_KEY,JSON.stringify(e));}catch(e){} }
+function trimBestScores(entries){
+  const sorted=[...(entries||[])].sort((a,b)=>(b.score||0)-(a.score||0));
+  const solo=sorted.filter(s=>s.mode==='solo'||s.player==='Solo'||s.playerCount===1).slice(0,SCOREBOARD_LIMIT_PER_MODE);
+  const multi=sorted.filter(s=>s.mode==='multi'||Number(s.playerCount)>1).slice(0,SCOREBOARD_LIMIT_PER_MODE);
+  const seen=new Set();
+  return [...solo,...multi].filter(s=>{
+    const key=s.id||`${s.gameId||''}-${s.player||''}-${s.score||0}-${s.date||''}`;
+    if(seen.has(key))return false;
+    seen.add(key);
+    return true;
+  }).sort((a,b)=>(b.score||0)-(a.score||0));
+}
 function scoresToHistory(scores){
   const groups=new Map();
   (scores||[]).forEach((score,i)=>{
@@ -654,7 +706,7 @@ function clearSavedGame(){ try{localStorage.removeItem(SAVE_KEY);}catch(e){} }
 function loadOnlineName(){ try{return localStorage.getItem(ONLINE_NAME_KEY)||'';}catch(e){return '';} }
 function saveOnlineName(name){ try{localStorage.setItem(ONLINE_NAME_KEY,name||'');}catch(e){} }
 
-function loadOnlineScores(){
+function loadOnlineScores(mode){
   if(!ONLINE_SCORE_ENDPOINT)return Promise.reject(new Error('missing-endpoint'));
   return new Promise((resolve,reject)=>{
     const cb=`cafeCortadoScores_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -678,7 +730,8 @@ function loadOnlineScores(){
       cleanup();
       reject(new Error('script-error'));
     };
-    script.src=`${ONLINE_SCORE_ENDPOINT}${sep}callback=${encodeURIComponent(cb)}&jsonp=${encodeURIComponent(cb)}&cb=${encodeURIComponent(cb)}&limit=10&_=${Date.now()}`;
+    const modeParam=mode?`&mode=${encodeURIComponent(mode)}`:'';
+    script.src=`${ONLINE_SCORE_ENDPOINT}${sep}callback=${encodeURIComponent(cb)}&jsonp=${encodeURIComponent(cb)}&cb=${encodeURIComponent(cb)}&limit=${ONLINE_SCORE_FETCH_LIMIT}${modeParam}&_=${Date.now()}`;
     document.body.appendChild(script);
   });
 }
@@ -934,53 +987,6 @@ function RulesSheet({open,onClose,leaderboard,onClear}){
               </>
             )}
           </div>
-          <div style={{fontSize:11,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,margin:'2px 0 10px'}}>Classements</div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,gap:10}}>
-            <strong style={{fontSize:13,color:'#78350F'}}>🌍 Classement général</strong>
-            <button onClick={refreshOnlineScores} className="btn-secondary" style={{background:'rgba(20,83,45,.12)',color:'#14532D',border:'1px solid rgba(20,83,45,.2)'}}>Actualiser</button>
-          </div>
-          {onlineStatus&&onlineStatus.type==='error'&&(
-            <div className="pill" style={{fontSize:12,marginBottom:8,color:'#991B1B'}}>
-              {onlineStatus.text}
-            </div>
-          )}
-          {onlineScores.length>0&&(
-            <div style={{display:'grid',gap:6,marginBottom:18}}>
-              {onlineScores.slice(0,10).map((s,i)=>{
-                const rawDate=String(s.date||'');
-                const cleanDate=rawDate.includes('T')?'':rawDate;
-                const cleanMode=s.mode==='solo'?'Solo':`${s.playerCount||'?'} joueurs`;
-                return(
-                  <div key={`${s.gameId}-${s.player}-${i}`} style={{display:'grid',gridTemplateColumns:'28px 1fr auto auto',gap:8,alignItems:'center',background:i===0?'rgba(245,158,11,.18)':'rgba(120,53,15,.07)',border:'1px solid rgba(120,53,15,.12)',borderRadius:8,padding:'8px 10px'}}>
-                    <strong style={{fontSize:13,color:'#78350F'}}>{i+1}</strong>
-                    <div>
-                      <div style={{fontSize:12,fontWeight:'bold',color:'#78350F'}}>{s.player||'Joueur'}</div>
-                      <div style={{fontSize:10,opacity:.6,color:'#78350F'}}>{cleanMode} · {s.role||'Rôle ?'}{cleanDate?` · ${cleanDate}`:''}</div>
-                    </div>
-                    <strong style={{fontSize:16,color:i===0?'#B45309':'#78350F'}}>{s.score}</strong>
-                    <button onClick={()=>setScoreDetail(s)} className="btn-secondary" style={{fontSize:10,padding:'5px 7px',background:'rgba(120,53,15,.1)',color:'#78350F',border:'1px solid rgba(120,53,15,.18)'}}>Détails</button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,gap:10}}>
-            <strong style={{fontSize:13,color:'#78350F'}}>🏆 Meilleurs scores</strong>
-            {leaderboard.length>0&&<button onClick={onClear} className="btn-secondary" style={{background:'rgba(120,53,15,.12)',color:'#78350F',border:'1px solid rgba(120,53,15,.18)'}}>Effacer</button>}
-          </div>
-          {leaderboard.length===0
-            ?<div className="pill" style={{fontSize:12,opacity:.7,color:'#78350F'}}>Aucun score enregistré.</div>
-            :<div style={{display:'grid',gap:6}}>
-              {leaderboard.slice(0,10).map((s,i)=>(
-                <div key={`${s.id||s.date}-${s.player}-${i}`} style={{display:'grid',gridTemplateColumns:'28px 1fr auto auto',gap:8,alignItems:'center',background:i===0?'rgba(245,158,11,.18)':'rgba(120,53,15,.07)',border:'1px solid rgba(120,53,15,.12)',borderRadius:8,padding:'8px 10px'}}>
-                  <strong style={{fontSize:13,color:'#78350F'}}>{i+1}</strong>
-                  <div><div style={{fontSize:12,fontWeight:'bold',color:'#78350F'}}>{s.emoji} {s.player}</div><div style={{fontSize:10,opacity:.6,color:'#78350F'}}>{s.mode==='solo'?'Solo':`${s.playerCount||'?'} joueurs`} · {s.role} · {s.date}</div></div>
-                  <strong style={{fontSize:16,color:i===0?'#B45309':'#78350F'}}>{s.score}</strong>
-                  <button onClick={()=>setScoreDetail(s)} className="btn-secondary" style={{fontSize:10,padding:'5px 7px',background:'rgba(120,53,15,.1)',color:'#78350F',border:'1px solid rgba(120,53,15,.18)'}}>Détails</button>
-                </div>
-              ))}
-            </div>
-          }
         </div>
       </div>
     </div>
@@ -1046,6 +1052,219 @@ function RulesSheet({open,onClose,leaderboard,onClear}){
 }
 
 // ─── Confirm Quit Sheet ────────────────────────────────────────────────────────
+function LeaderboardSheet({open,onClose,leaderboard,onClear}){
+  const[scope,setScope]=useState('local');
+  const[mode,setMode]=useState('solo');
+  const[onlineScores,setOnlineScores]=useState([]);
+  const[onlineStatus,setOnlineStatus]=useState({type:'idle',text:''});
+  if(!open)return null;
+  const refreshOnlineScores=()=>{
+    if(!ONLINE_SCORE_ENDPOINT){setOnlineStatus({type:'error',text:'Classement général non configuré.'});return;}
+    setOnlineStatus({type:'pending',text:'Chargement du classement général...'});
+    loadOnlineScores()
+      .then(scores=>{setOnlineScores(scores||[]);setOnlineStatus({type:'ok',text:scores?.length?'':'Aucun score général pour le moment.'});})
+      .catch(()=>setOnlineStatus({type:'error',text:'Impossible de charger le classement général.'}));
+  };
+  const source=scope==='local'?leaderboard:onlineScores;
+  const filtered=(source||[]).filter(s=>mode==='solo'?(s.mode==='solo'||s.playerCount===1||s.player==='Solo'):(s.mode==='multi'||Number(s.playerCount)>1)).sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,SCOREBOARD_LIMIT_PER_MODE);
+  const showLoading=scope==='general'&&onlineStatus.type==='pending';
+  const showEmpty=!showLoading&&filtered.length===0;
+  return(
+    <div className="bottom-sheet-overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="bottom-sheet slide-up">
+        <div className="bottom-sheet-handle"/>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 14px 10px',flexShrink:0}}>
+          <strong style={{fontSize:16,color:'#78350F'}}>🏆 Classement</strong>
+          <button onClick={onClose} className="btn-secondary" style={{background:'#78350F',color:'#FEF3C7',border:'none'}}>Fermer</button>
+        </div>
+        <div className="bottom-sheet-body">
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:8}}>
+            {[['local','Local'],['general','Général']].map(([id,label])=>(
+              <button key={id} onClick={()=>{setScope(id);if(id==='general'&&!onlineScores.length)refreshOnlineScores();}} style={{border:'1px solid rgba(120,53,15,.16)',borderRadius:8,padding:'9px 6px',background:scope===id?'#78350F':'rgba(120,53,15,.07)',color:scope===id?'#FEF3C7':'#78350F',fontSize:12,fontWeight:'bold'}}>{label}</button>
+            ))}
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:12}}>
+            {[['solo','Solo'],['multi','Multijoueur']].map(([id,label])=>(
+              <button key={id} onClick={()=>setMode(id)} style={{border:'1px solid rgba(120,53,15,.16)',borderRadius:8,padding:'8px 6px',background:mode===id?'rgba(245,158,11,.22)':'rgba(120,53,15,.06)',color:'#78350F',fontSize:12,fontWeight:'bold'}}>{label}</button>
+            ))}
+          </div>
+          {scope==='general'&&(
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:10}}>
+              <div style={{fontSize:12,color:'#78350F',opacity:.78}}>Scores envoyés en ligne</div>
+              <button onClick={refreshOnlineScores} disabled={showLoading} className="btn-secondary" style={{background:'rgba(20,83,45,.12)',color:'#14532D',border:'1px solid rgba(20,83,45,.2)',opacity:showLoading?0.7:1}}>Actualiser</button>
+            </div>
+          )}
+          {showLoading&&<div className="pill" style={{display:'flex',alignItems:'center',gap:10,fontSize:12,marginBottom:8}}><span className="spinner"/> {onlineStatus.text}</div>}
+          {onlineStatus.type==='error'&&scope==='general'&&<div className="pill" style={{fontSize:12,marginBottom:8,color:'#991B1B'}}>{onlineStatus.text}</div>}
+          {showEmpty
+            ?<div className="pill" style={{fontSize:12,opacity:.72,color:'#78350F'}}>Aucun score dans ce filtre.</div>
+            :<div style={{display:'grid',gap:6}}>
+              {filtered.map((s,i)=>{
+                const rawDate=String(s.date||'');
+                const cleanDate=rawDate.includes('T')?'':rawDate;
+                const cleanMode=s.mode==='solo'||s.playerCount===1?'Solo':`${s.playerCount||'?'} joueurs`;
+                return(
+                  <div key={`${scope}-${s.id||s.gameId||s.date}-${s.player}-${i}`} style={{display:'grid',gridTemplateColumns:'28px 1fr auto',gap:8,alignItems:'center',background:i===0?'rgba(245,158,11,.18)':'rgba(120,53,15,.07)',border:'1px solid rgba(120,53,15,.12)',borderRadius:8,padding:'8px 10px'}}>
+                    <strong style={{fontSize:13,color:'#78350F'}}>{i+1}</strong>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:'bold',color:'#78350F'}}>{s.emoji||''} {s.player||'Joueur'}</div>
+                      <div style={{fontSize:10,opacity:.62,color:'#78350F'}}>{cleanMode} · {s.role||'Rôle ?'}{cleanDate?` · ${cleanDate}`:''}</div>
+                    </div>
+                    <strong style={{fontSize:16,color:i===0?'#B45309':'#78350F'}}>{s.score}</strong>
+                  </div>
+                );
+              })}
+            </div>
+          }
+          {scope==='local'&&leaderboard.length>0&&<button onClick={onClear} className="btn-secondary" style={{width:'100%',marginTop:12,background:'rgba(120,53,15,.1)',color:'#78350F',border:'1px solid rgba(120,53,15,.18)'}}>Effacer le classement local</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LeaderboardSheetByMode({open,onClose,leaderboard,onClear}){
+  const[scope,setScope]=useState('local');
+  const[mode,setMode]=useState('solo');
+  const[scoreDetail,setScoreDetail]=useState(null);
+  const[onlineScores,setOnlineScores]=useState({solo:[],multi:[]});
+  const[onlineStatus,setOnlineStatus]=useState({solo:{type:'idle',text:''},multi:{type:'idle',text:''}});
+  if(!open)return null;
+  const currentOnlineStatus=onlineStatus[mode]||{type:'idle',text:''};
+  const refreshOnlineScores=(nextMode=mode)=>{
+    if(!ONLINE_SCORE_ENDPOINT){
+      setOnlineStatus(s=>({...s,[nextMode]:{type:'error',text:'Classement général non configuré.'}}));
+      return;
+    }
+    setOnlineStatus(s=>({...s,[nextMode]:{type:'pending',text:`Chargement du classement ${nextMode==='solo'?'solo':'multijoueur'}...`}}));
+    loadOnlineScores(nextMode)
+      .then(scores=>{
+        setOnlineScores(s=>({...s,[nextMode]:scores||[]}));
+        setOnlineStatus(s=>({...s,[nextMode]:{type:'ok',text:scores?.length?'':'Aucun score général pour le moment.'}}));
+      })
+      .catch(()=>setOnlineStatus(s=>({...s,[nextMode]:{type:'error',text:'Impossible de charger le classement général.'}})));
+  };
+  const source=scope==='local'?leaderboard:(onlineScores[mode]||[]);
+  const filtered=(source||[])
+    .filter(s=>mode==='solo'?(s.mode==='solo'||s.playerCount===1||s.player==='Solo'):(s.mode==='multi'||Number(s.playerCount)>1))
+    .sort((a,b)=>(b.score||0)-(a.score||0))
+    .slice(0,SCOREBOARD_LIMIT_PER_MODE);
+  const showLoading=scope==='general'&&currentOnlineStatus.type==='pending';
+  const showEmpty=!showLoading&&filtered.length===0;
+  return(
+    <>
+    <div className="bottom-sheet-overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="bottom-sheet slide-up">
+        <div className="bottom-sheet-handle"/>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 14px 10px',flexShrink:0}}>
+          <strong style={{fontSize:16,color:'#78350F'}}>🏆 Classement</strong>
+          <button onClick={onClose} className="btn-secondary" style={{background:'#78350F',color:'#FEF3C7',border:'none'}}>Fermer</button>
+        </div>
+        <div className="bottom-sheet-body">
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:8}}>
+            {[['local','Local'],['general','Général']].map(([id,label])=>(
+              <button key={id} onClick={()=>{setScope(id);if(id==='general'&&currentOnlineStatus.type==='idle')refreshOnlineScores(mode);}} style={{border:'1px solid rgba(120,53,15,.16)',borderRadius:8,padding:'9px 6px',background:scope===id?'#78350F':'rgba(120,53,15,.07)',color:scope===id?'#FEF3C7':'#78350F',fontSize:12,fontWeight:'bold'}}>{label}</button>
+            ))}
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:12}}>
+            {[['solo','Solo'],['multi','Multijoueur']].map(([id,label])=>(
+              <button key={id} onClick={()=>{setMode(id);if(scope==='general'&&(onlineStatus[id]?.type||'idle')==='idle')refreshOnlineScores(id);}} style={{border:'1px solid rgba(120,53,15,.16)',borderRadius:8,padding:'8px 6px',background:mode===id?'rgba(245,158,11,.22)':'rgba(120,53,15,.06)',color:'#78350F',fontSize:12,fontWeight:'bold'}}>{label}</button>
+            ))}
+          </div>
+          {scope==='general'&&(
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:10}}>
+              <div style={{fontSize:12,color:'#78350F',opacity:.78}}>Scores envoyés en ligne</div>
+              <button onClick={()=>refreshOnlineScores(mode)} disabled={showLoading} className="btn-secondary" style={{background:'rgba(20,83,45,.12)',color:'#14532D',border:'1px solid rgba(20,83,45,.2)',opacity:showLoading?0.7:1}}>Actualiser</button>
+            </div>
+          )}
+          {showLoading&&<div className="pill" style={{display:'flex',alignItems:'center',gap:10,fontSize:12,marginBottom:8}}><span className="spinner"/> {currentOnlineStatus.text}</div>}
+          {currentOnlineStatus.type==='error'&&scope==='general'&&<div className="pill" style={{fontSize:12,marginBottom:8,color:'#991B1B'}}>{currentOnlineStatus.text}</div>}
+          {showEmpty
+            ?<div className="pill" style={{fontSize:12,opacity:.72,color:'#78350F'}}>Aucun score dans ce filtre.</div>
+            :<div style={{display:'grid',gap:6}}>
+              {filtered.map((s,i)=>{
+                const rawDate=String(s.date||'');
+                const cleanDate=rawDate.includes('T')?'':rawDate;
+                const cleanMode=s.mode==='solo'||s.playerCount===1?'Solo':`${s.playerCount||'?'} joueurs`;
+                return(
+                  <div key={`${scope}-${s.id||s.gameId||s.date}-${s.player}-${i}`} style={{display:'grid',gridTemplateColumns:'28px 1fr auto auto',gap:8,alignItems:'center',background:i===0?'rgba(245,158,11,.18)':'rgba(120,53,15,.07)',border:'1px solid rgba(120,53,15,.12)',borderRadius:8,padding:'8px 10px'}}>
+                    <strong style={{fontSize:13,color:'#78350F'}}>{i+1}</strong>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:'bold',color:'#78350F'}}>{s.emoji||''} {s.player||'Joueur'}</div>
+                      <div style={{fontSize:10,opacity:.62,color:'#78350F'}}>{cleanMode} · {s.role||'Rôle ?'}{cleanDate?` · ${cleanDate}`:''}</div>
+                    </div>
+                    <strong style={{fontSize:16,color:i===0?'#B45309':'#78350F'}}>{s.score}</strong>
+                    <button onClick={()=>setScoreDetail(s)} className="btn-secondary" style={{fontSize:10,padding:'5px 7px',background:'rgba(120,53,15,.1)',color:'#78350F',border:'1px solid rgba(120,53,15,.18)'}}>Détails</button>
+                  </div>
+                );
+              })}
+            </div>
+          }
+          {scope==='local'&&leaderboard.length>0&&<button onClick={onClear} className="btn-secondary" style={{width:'100%',marginTop:12,background:'rgba(120,53,15,.1)',color:'#78350F',border:'1px solid rgba(120,53,15,.18)'}}>Effacer le classement local</button>}
+        </div>
+      </div>
+    </div>
+    {scoreDetail&&(
+      <div className="bottom-sheet-overlay" onClick={e=>{if(e.target===e.currentTarget)setScoreDetail(null);}} style={{zIndex:260}}>
+        <div className="bottom-sheet slide-up" onClick={e=>e.stopPropagation()}>
+          <div className="bottom-sheet-handle"/>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 14px 10px',flexShrink:0}}>
+            <strong style={{fontSize:16,color:'#78350F'}}>🏆 Détail du score</strong>
+            <button onClick={()=>setScoreDetail(null)} className="btn-secondary" style={{background:'#78350F',color:'#FEF3C7',border:'none'}}>Fermer</button>
+          </div>
+          <div className="bottom-sheet-body">
+            <div className="pill" style={{display:'grid',gridTemplateColumns:'1fr auto',gap:10,alignItems:'center',marginBottom:8}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:'bold',color:'#78350F'}}>{scoreDetail.emoji||''} {scoreDetail.player||'Joueur'}</div>
+                <div style={{fontSize:11,color:'#92400E',opacity:.75,marginTop:2}}>{scoreDetail.date}{scoreDetail.time?` · ${scoreDetail.time}`:''} · {scoreDetail.mode==='solo'||scoreDetail.playerCount===1?'Solo':`${scoreDetail.playerCount||'?'} joueurs`}</div>
+              </div>
+              <strong style={{fontSize:26,color:'#B45309'}}>{scoreDetail.score}<span style={{fontSize:11,marginLeft:2}}>pts</span></strong>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:7,margin:'8px 0'}}>
+              <InfoPill item={{e:scoreDetail.roleEmoji||'🎭',n:scoreDetail.role||'Rôle',d:scoreDetail.roleDescription||'Rôle non enregistré.'}}/>
+              <InfoPill item={{e:scoreDetail.secretEmoji||'🎯',n:scoreDetail.secret||'Secret',d:scoreDetail.secretDescription||'Objectif secret non enregistré.',pts:scoreDetail.secretPoints||0}} secret/>
+            </div>
+            {scoreDetail.publicObjectives?.length>0&&(
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:10,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>Objectifs publics</div>
+                <div style={{display:'grid',gap:6}}>
+                  {scoreDetail.publicObjectives.map(o=><InfoPill key={o.id||o.n} item={o}/>)}
+                </div>
+              </div>
+            )}
+            {scoreDetail.grid&&(
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:10,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>Plateau final</div>
+                <div style={{display:'grid',gridTemplateColumns:`repeat(${G},1fr)`,gap:4,background:'rgba(120,53,15,.12)',padding:8,borderRadius:10}}>
+                  {scoreDetail.grid.flatMap((row,r)=>row.map((tile,c)=>(
+                    <div key={`${r}-${c}`} style={{aspectRatio:'1',borderRadius:6,background:tile?T[tile.type]?.bg:'rgba(255,255,255,.35)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'clamp(14px,5vw,22px)',position:'relative'}}>
+                      {tile?T[tile.type]?.e:null}
+                      {tile?.type==='touriste'&&(tile.windows||[]).map(d=><WBar key={d} d={d}/>)}
+                    </div>
+                  )))}
+                </div>
+              </div>
+            )}
+            <div style={{fontSize:10,color:'#78350F',fontWeight:'bold',textTransform:'uppercase',letterSpacing:1,marginBottom:6}}>Décompte</div>
+            {scoreDetail.sections
+              ?<div style={{display:'grid',gap:6}}>
+                {[['Tuiles',scoreDetail.sections.tuiles],['Rôles',scoreDetail.sections.roles],['Objectifs publics',scoreDetail.sections.publics],['Secret',scoreDetail.sections.secret],['Cortados',scoreDetail.sections.cortados]].map(([title,items])=>items&&items.length?(
+                  <div key={title} className="pill">
+                    <div style={{fontSize:11,fontWeight:'bold',color:'#78350F',marginBottom:3}}>{title}</div>
+                    {items.map((line,i)=><div key={i} style={{fontSize:11,color:'#92400E',lineHeight:1.35}}>· {line}</div>)}
+                  </div>
+                ):null)}
+              </div>
+              :<div className="pill" style={{fontSize:12,color:'#78350F',opacity:.72}}>Ce score n'a pas de détail complet enregistré.</div>
+            }
+          </div>
+        </div>
+      </div>
+    )}
+    </>
+  );
+}
+
 function ConfirmQuitSheet({open,onCancel,onConfirm}){
   if(!open)return null;
   return(
@@ -1199,6 +1418,7 @@ function CafeCortado(){
   const[publicObjectives,setPublicObjectives]=useState([]);
   const[showObjectives,setShowObjectives]=useState(false);
   const[showRules,setShowRules]=useState(false);
+  const[showLeaderboard,setShowLeaderboard]=useState(false);
   const[showHistory,setShowHistory]=useState(false);
   const[leaderboard,setLeaderboard]=useState(loadBestScores);
   const[history,setHistory]=useState(loadHistory);
@@ -1214,7 +1434,8 @@ function CafeCortado(){
   const[pendingPick,setPendingPick]=useState(null);
   const[onlinePayload,setOnlinePayload]=useState(null);
   const[onlineSubmitStatus,setOnlineSubmitStatus]=useState(null);
-  const[onlinePlayerName,setOnlinePlayerName]=useState(loadOnlineName);
+  const[onlinePlayerNames,setOnlinePlayerNames]=useState({});
+  const[showBen67,setShowBen67]=useState(false);
 
   const cp=players[ci];
 
@@ -1231,7 +1452,7 @@ function CafeCortado(){
     setPublicObjectives(pub);
     setPlayers(Array.from({length:nP},(_,i)=>({id:i,name:nP===1?'Solo':PN[i],color:PC[i],emoji:PE[i],grid:makeGrid(),score:0,cortado:roles[i].id==='patron'?4:3,role:roles[i],secret:secrets[i],architectUsed:false})));
     setVitrine(all.slice(0,3));setBag(all.slice(3));
-    setCi(0);setSel(null);setPendingPick(null);setVPos([]);setTp('DRAFT');setMsg('');setShowObjectives(false);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);setPhase('PLAYING');setActiveTab('vitrine');
+    setCi(0);setSel(null);setPendingPick(null);setVPos([]);setTp('DRAFT');setMsg('');setShowObjectives(false);setShowLeaderboard(false);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);setOnlinePlayerNames({});setShowBen67(false);setPhase('PLAYING');setActiveTab('vitrine');
   }
 
   function resumeGame(){
@@ -1297,7 +1518,16 @@ function CafeCortado(){
   }
 
   function applyHabitueFavori(type){
-    if(!type){setHabituePickerPending(false);return;}
+    if(!type){
+      setHabituePickerPending(false);
+      setMsg('Habitué posé, aucun client favorisé.');
+      if(players.length===1){
+        setTimeout(()=>{setTp('DRAFT');setSel(null);setPendingPick(null);setVPos([]);setPreview(null);setLastScore(null);},50);
+      }else{
+        setTimeout(()=>endTurn(),50);
+      }
+      return;
+    }
     haptic('medium');
     // Build 2 extra tiles of chosen type and inject into bag
     let maxId=0;
@@ -1313,6 +1543,8 @@ function CafeCortado(){
     setHabituePickerPending(false);
     if(players.length===1){
       setTimeout(()=>{setTp('DRAFT');setSel(null);setPendingPick(null);setVPos([]);setPreview(null);setLastScore(null);},50);
+    }else{
+      setTimeout(()=>endTurn(),50);
     }
   }
 
@@ -1376,6 +1608,7 @@ function CafeCortado(){
       publicObjectives:publicObjectives.map(o=>({id:o.id,e:o.e,n:o.n,d:o.d,pts:o.pts})),
       version:GAME_VERSION,
     }));
+    setOnlinePlayerNames(Object.fromEntries(saved.map(s=>[s.playerId,String(s.player||'')])));
     setOnlinePayload({
       gameId,
       createdAt:now.toISOString(),
@@ -1388,8 +1621,7 @@ function CafeCortado(){
       scores:saved,
     });
     setOnlineSubmitStatus(null);
-    const next=[...leaderboard,...saved]
-      .sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,10);
+    const next=trimBestScores([...leaderboard,...saved]);
     setLeaderboard(next);saveBestScores(next);
     const historyEntry={gameId,date:stamp,time,mode,playerCount:src.length,version:GAME_VERSION,publicObjectives:publicObjectives.map(o=>({id:o.id,e:o.e,n:o.n,d:o.d,pts:o.pts})),scores:saved};
     const nextHistory=[historyEntry,...history];
@@ -1413,18 +1645,23 @@ function CafeCortado(){
     }
     setOnlineSubmitStatus({type:'pending',text:'Envoi au classement général...'});
     try{
-      const publicName=onlinePlayerName.trim();
-      saveOnlineName(publicName);
-      const payload={
-        ...onlinePayload,
-        displayName:publicName,
-        scores:onlinePayload.scores.map(score=>({
+      const namedScores=onlinePayload.scores.map(score=>{
+        const publicName=String(onlinePlayerNames[score.playerId]||score.player||'').trim();
+        return {
           ...score,
           originalPlayer:score.originalPlayer||score.player,
-          player:publicName
-            ? (onlinePayload.playerCount>1?`${publicName} · ${score.player}`:publicName)
-            : score.player,
-        })),
+          player:publicName||score.player,
+        };
+      });
+      if(namedScores.some(score=>Number(score.score)===67&&score.player==='Ben')){
+        setShowBen67(true);
+        setTimeout(()=>setShowBen67(false),3200);
+      }
+      if(namedScores.length===1)saveOnlineName(namedScores[0].player);
+      const payload={
+        ...onlinePayload,
+        displayName:namedScores.map(s=>s.player).join(', '),
+        scores:namedScores,
       };
       await fetch(ONLINE_SCORE_ENDPOINT,{
         method:'POST',
@@ -1443,7 +1680,7 @@ function CafeCortado(){
   function quitGame(){
     setPhase('SETUP');setPlayers([]);setCi(0);setVitrine([]);setBag([]);
     setSel(null);setPendingPick(null);setVPos([]);setTp('DRAFT');setMsg('');setEndData([]);
-    setPublicObjectives([]);setShowObjectives(false);setShowRules(false);setShowHistory(false);setShowQuitConfirm(false);setShowEndGrid(null);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);setOnlinePayload(null);setOnlineSubmitStatus(null);
+    setPublicObjectives([]);setShowObjectives(false);setShowRules(false);setShowLeaderboard(false);setShowHistory(false);setShowQuitConfirm(false);setShowEndGrid(null);setPreview(null);setLastScore(null);setInfoTile(null);setSoloRecordResult(null);setHabituePickerPending(false);setOnlinePayload(null);setOnlineSubmitStatus(null);setOnlinePlayerNames({});setShowBen67(false);
     clearSavedGame();setSavedGame(null);
   }
 
@@ -1451,11 +1688,15 @@ function CafeCortado(){
   if(phase==='SETUP') return(
     <div className="screen">
       <RulesSheet open={showRules} onClose={()=>setShowRules(false)} leaderboard={leaderboard} onClear={()=>{setLeaderboard([]);saveBestScores([]);}}/>
+      <LeaderboardSheetByMode open={showLeaderboard} onClose={()=>setShowLeaderboard(false)} leaderboard={leaderboard} onClear={()=>{setLeaderboard([]);saveBestScores([]);}}/>
       <HistorySheet open={showHistory} onClose={()=>setShowHistory(false)} history={history} onClear={()=>{setHistory([]);saveHistory([]);}}/>
       <div className="setup-screen safe-top safe-bottom">
         <div style={{fontSize:64,marginBottom:8}}>☕</div>
         <h1 style={{fontSize:30,fontWeight:'bold',margin:'0 0 4px',letterSpacing:3,textShadow:'0 2px 14px rgba(0,0,0,.7)'}}>CAFÉ CORTADO</h1>
         <p style={{fontSize:11,opacity:.45,margin:'0 0 32px',letterSpacing:3}}>PETITES TUILES, GRANDS DILEMMES</p>
+        <button onClick={()=>setShowLeaderboard(true)} title="Classement" style={{background:'rgba(255,255,255,.12)',border:'1px solid rgba(255,255,255,.2)',borderRadius:12,color:'#FEF3C7',margin:'0 0 18px',fontSize:13,padding:'10px 14px',fontWeight:'bold'}}>
+          🏆 Classement
+        </button>
         <div style={{background:'rgba(255,255,255,.1)',borderRadius:16,padding:24,marginBottom:20,width:'100%',maxWidth:360}}>
           <p style={{margin:'0 0 14px',fontSize:14}}>{nP===1?'Mode solo':'Nombre de joueurs'}</p>
           <div style={{display:'flex',gap:12,justifyContent:'center'}}>
@@ -1529,6 +1770,21 @@ function CafeCortado(){
   if(phase==='ENDGAME') return(
     <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
       <RulesSheet open={showRules} onClose={()=>setShowRules(false)} leaderboard={leaderboard} onClear={()=>{setLeaderboard([]);saveBestScores([]);}}/>
+      {showBen67&&(
+        <div className="ben67-overlay">
+          {Array.from({length:52},(_,i)=>{
+            const colors=['#F59E0B','#22C55E','#EF4444','#3B82F6','#FEF3C7','#A855F7'];
+            return <span key={i} className="confetti-piece" style={{
+              left:`${(i*37)%100}%`,
+              background:colors[i%colors.length],
+              animationDelay:`${(i%13)*.055}s`,
+              animationDuration:`${1.55+(i%9)*.13}s`,
+              transform:`rotate(${i*17}deg)`,
+            }}/>;
+          })}
+          <div className="ben67-number">67</div>
+        </div>
+      )}
       {showEndGrid!==null&&(()=>{
         const ep=endData.find(p=>p.id===showEndGrid);if(!ep)return null;
         return(
@@ -1595,7 +1851,7 @@ function CafeCortado(){
           )}
           <div style={{background:'rgba(255,255,255,.07)',border:'1px solid rgba(255,255,255,.12)',borderRadius:12,padding:14,margin:'14px 0'}}>
             <div style={{fontSize:11,letterSpacing:1.2,textTransform:'uppercase',opacity:.65,marginBottom:8}}>Meilleurs scores</div>
-            {leaderboard.slice(0,5).map((s,i)=>(
+            {leaderboard.slice(0,10).map((s,i)=>(
               <div key={`${s.date}-${s.player}-${i}`} style={{display:'flex',justifyContent:'space-between',gap:12,fontSize:12,padding:'5px 0',borderTop:i?'1px solid rgba(255,255,255,.08)':'none'}}>
                 <span>{i+1}. {s.emoji} {s.player} · {s.mode==='solo'?'Solo · ':''}{s.role}</span>
                 <strong>{s.score} pts</strong>
@@ -1605,12 +1861,18 @@ function CafeCortado(){
           {onlinePayload&&(
             <div style={{background:'rgba(255,255,255,.07)',border:'1px solid rgba(255,255,255,.12)',borderRadius:12,padding:14,margin:'14px 0'}}>
               <div style={{fontSize:11,letterSpacing:1.2,textTransform:'uppercase',opacity:.65,marginBottom:8}}>Classement général</div>
-              <label style={{display:'block',fontSize:11,opacity:.72,marginBottom:5}}>Nom affiché</label>
-              <input value={onlinePlayerName} onChange={e=>setOnlinePlayerName(e.target.value)} placeholder={onlinePayload.playerCount>1?'Nom du groupe ou joueur':'Votre nom'} maxLength={32} style={{
-                width:'100%',padding:'11px 12px',borderRadius:10,border:'1px solid rgba(255,255,255,.18)',
-                background:'rgba(255,255,255,.12)',color:'#FEF3C7',fontFamily:'Georgia,serif',fontSize:14,
-                marginBottom:10,outline:'none',
-              }}/>
+              <div style={{display:'grid',gap:8,marginBottom:10}}>
+                {onlinePayload.scores.map(score=>(
+                  <label key={score.id} style={{display:'block'}}>
+                    <span style={{display:'block',fontSize:11,opacity:.72,marginBottom:5}}>{score.emoji} Nom affiché {onlinePayload.playerCount>1?`- ${score.originalPlayer||score.player}`:''}</span>
+                    <input value={onlinePlayerNames[score.playerId]??score.player??''} onChange={e=>setOnlinePlayerNames(names=>({...names,[score.playerId]:e.target.value}))} placeholder={onlinePayload.playerCount>1?'Nom du joueur':'Votre nom'} maxLength={32} style={{
+                      width:'100%',padding:'11px 12px',borderRadius:10,border:'1px solid rgba(255,255,255,.18)',
+                      background:'rgba(255,255,255,.12)',color:'#FEF3C7',fontFamily:'Georgia,serif',fontSize:14,
+                      outline:'none',
+                    }}/>
+                  </label>
+                ))}
+              </div>
               <button onClick={submitOnlineScore} disabled={onlineSubmitStatus?.type==='pending'} className="btn-primary" style={{background:'#14532D',color:'#FFF',opacity:onlineSubmitStatus?.type==='pending'?0.7:1}}>
                 🌍 Envoyer cette partie
               </button>
