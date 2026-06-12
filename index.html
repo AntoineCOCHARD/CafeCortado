@@ -835,7 +835,7 @@ function isOnlinePayloadSent(payload){
   catch(e){return false;}
 }
 
-function loadOnlineScores(mode,category='standard'){
+function loadOnlineScoresForVersion(version,mode,category){
   if(!ONLINE_SCORE_ENDPOINT)return Promise.reject(new Error('missing-endpoint'));
   return new Promise((resolve,reject)=>{
     const cb=`cafeCortadoScores_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -861,10 +861,23 @@ function loadOnlineScores(mode,category='standard'){
     };
     const modeParam=mode?`&mode=${encodeURIComponent(mode)}`:'';
     const categoryParam=category?`&category=${encodeURIComponent(category)}`:'';
-    const versionParam=`&version=${encodeURIComponent(GAME_VERSION)}`;
+    const versionParam=`&version=${encodeURIComponent(version)}`;
     script.src=`${ONLINE_SCORE_ENDPOINT}${sep}callback=${encodeURIComponent(cb)}&jsonp=${encodeURIComponent(cb)}&cb=${encodeURIComponent(cb)}&limit=${ONLINE_SCORE_FETCH_LIMIT}${modeParam}${categoryParam}${versionParam}&_=${Date.now()}`;
     document.body.appendChild(script);
   });
+}
+function loadOnlineScores(mode,category='standard'){
+  const versions=IS_5X5?[GAME_VERSION]:[GAME_VERSION,'v2.2'];
+  return Promise.all(versions.map(version=>loadOnlineScoresForVersion(version,mode,category)))
+    .then(groups=>{
+      const seen=new Set();
+      return groups.flat().filter(score=>{
+        const key=score.id||`${score.gameId||''}-${score.player||''}-${score.score||0}-${score.date||''}-${score.version||''}`;
+        if(seen.has(key))return false;
+        seen.add(key);
+        return true;
+      });
+    });
 }
 
 // ─── Window Bar ───────────────────────────────────────────────────────────────
@@ -1424,7 +1437,7 @@ function LeaderboardSheetByMode({open,onClose,leaderboard,onClear}){
       return;
     }
     setOnlineStatus(s=>({...s,[nextKey]:{type:'pending',text:`Chargement du classement ${nextKey==='solo'?'solo':'multijoueur'}...`}}));
-    loadOnlineScores(nextKey,'standard',null)
+    loadOnlineScores(nextKey,'standard')
       .then(scores=>{
         setOnlineScores(s=>({...s,[nextKey]:scores||[]}));
         setOnlineStatus(s=>({...s,[nextKey]:{type:'ok',text:scores?.length?'':'Aucun score général pour le moment.'}}));
